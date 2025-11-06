@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 // import earcut, {flatten, deviation} from '../src/earcut.js'; // original JS version
-import {earcut, flatten, deviation} from '../Src/Earcut.fs.js'; // F# to JS version
+import {earcut, flatten, deviation} from '../Src/EarcutFs.fs.js'; // F# to JS version
 import fs from 'fs';
 
 const expected = JSON.parse(fs.readFileSync(new URL('expected.json', import.meta.url)));
