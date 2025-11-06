@@ -32,7 +32,7 @@ type Node = {
     mutable steiner: bool
 }
 
-let (*inline*) internal createNode(i: int, x: float, y: float) : Node =
+let createNode(i: int, x: float, y: float) : Node =
     {
         i = i
         x = x
@@ -45,16 +45,16 @@ let (*inline*) internal createNode(i: int, x: float, y: float) : Node =
         steiner = false
     }
 
-let (*inline*) internal (===) (a:Node) (b:Node) = obj.ReferenceEquals(a, b)
+let (===) (a:Node) (b:Node) = obj.ReferenceEquals(a, b)
 
-let (*inline*) internal (!==) (a:Node) (b:Node) = not <| obj.ReferenceEquals(a, b)
+let (!==) (a:Node) (b:Node) = not <| obj.ReferenceEquals(a, b)
 
-let (*inline*) internal notNull (node: Node) : bool = not <| obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
+let notNull (node: Node) : bool = not <| obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
 
-let (*inline*) internal isNull (node: Node) : bool = obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
+let isNull (node: Node) : bool = obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
 
 // create a node and optionally link it with previous one (in a circular doubly linked list)
-let (*inline*) internal insertNode (i: int, x: float, y: float, last: Node) : Node =
+let insertNode (i: int, x: float, y: float, last: Node) : Node =
     let p = createNode(i, x, y)
     if isNull last then
         p.prev <- p
@@ -66,7 +66,7 @@ let (*inline*) internal insertNode (i: int, x: float, y: float, last: Node) : No
         last.next <- p
     p
 
-let (*inline*) internal removeNode (p: Node) : unit =
+let removeNode (p: Node) : unit =
     p.next.prev <- p.prev
     p.prev.next <- p.next
 
@@ -74,9 +74,9 @@ let (*inline*) internal removeNode (p: Node) : unit =
     if notNull p.nextZ then p.nextZ.prevZ <- p.prevZ
 
 // signed area of a triangle
-let (*inline*) internal area (p: Node, q: Node, r: Node) : float =
+let area (p: Node, q: Node, r: Node) : float =
     (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y)
 
 // check if two points are equal
-let (*inline*) internal equals (p1: Node, p2: Node) : bool =
+let equals (p1: Node, p2: Node) : bool =
     p1.x = p2.x && p1.y = p2.y
