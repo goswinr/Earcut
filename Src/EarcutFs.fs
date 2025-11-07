@@ -652,7 +652,7 @@ let eliminateHoles(data: ResizeArray<float>, holeIndices: ResizeArray<int>, oute
     outerNode
 
 let earcut(data: ResizeArray<float>, holeIndices: ResizeArray<int>, dim: int) : ResizeArray<int> =
-    let hasHoles = holeIndices <> null && holeIndices.Count > 0
+    let hasHoles =  not (obj.ReferenceEquals(holeIndices, null))   && holeIndices.Count > 0
     let outerLen = if hasHoles then holeIndices.[0] * dim else data.Count
     let mutable outerNode = linkedList(data, 0, outerLen, dim, true)
     let triangles = ResizeArray<int>()

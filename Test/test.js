@@ -8,7 +8,7 @@ import fs from 'fs';
 const expected = JSON.parse(fs.readFileSync(new URL('expected.json', import.meta.url)));
 
 test('indices-2d', () => {
-    const indices = earcut([10, 0, 0, 50, 60, 60, 70, 10]);
+    const indices = earcut([10, 0, 0, 50, 60, 60, 70, 10], null, 2); // add dims for F# version
     assert.deepEqual(indices, [1, 0, 3, 3, 2, 1]);
 });
 
@@ -26,7 +26,6 @@ for (const id of Object.keys(expected.triangles)) {
     for (const rotation of [0, 90, 180, 270]) {
         test(`${id} rotation ${rotation}`, () => {
             const coords = JSON.parse(fs.readFileSync(new URL(`fixtures/${id}.json`, import.meta.url)));
-            // console.log(`Testing fixtures/${id}.json with rotation ${rotation}`);
             const theta = rotation * Math.PI / 180;
             const xx = Math.round(Math.cos(theta));
             const xy = Math.round(-Math.sin(theta));
@@ -41,11 +40,15 @@ for (const id of Object.keys(expected.triangles)) {
                     }
                 }
             }
-            const data = flatten(coords),
-                indices = earcut(data.vertices, data.holes, data.dimensions),
-                err = deviation(data.vertices, data.holes, data.dimensions, indices),
-                expectedTriangles = expected.triangles[id],
-                expectedDeviation = (rotation !== 0 && expected['errors-with-rotation'][id]) || expected.errors[id] || 0;
+            const data = flatten(coords);
+            // console.log(`fixtures/${id}.json: ${data.vertices.length / 2} vertices, ${data.holes.length} holes, dim=${data.dimensions}`);
+            if (!data.dimensions) {
+                data.dimensions = 2; // because in the F# version undefined is not accepted
+            };
+            const indices = earcut(data.vertices, data.holes, data.dimensions);
+            const err = deviation(data.vertices, data.holes, data.dimensions, indices);
+            const expectedTriangles = expected.triangles[id];
+            const expectedDeviation = (rotation !== 0 && expected['errors-with-rotation'][id]) || expected.errors[id] || 0;
 
             const numTriangles = indices.length / 3;
             if (rotation === 0) {
