@@ -318,33 +318,31 @@ let linkedList(data: ResizeArray<float>, start: int, end_: int, dim: int, clockw
     last
 
 // eliminate colinear or duplicate points
-let rec filterPoints(start: Node, end_: Node) : Node =
-    if isNull start then start
+// in JS this sometimes gets called with just one argument
+let rec filterPoints(start: Node, ende: Node) : Node =
+    if isNull start then
+        start
     else
-        let mutable end_ = if isNull end_ then start else end_
+        let mutable ende = if isNull ende then start else ende
         let mutable p = start
-        let mutable again = false
         let mutable continueLoop = true
 
         // do-while loop: execute once then check condition
         while continueLoop do
-            again <- false
 
             if not p.steiner && (equals(p, p.next) || area(p.prev, p, p.next) = 0.0) then
                 removeNode(p)
-                p <- end_
-                end_ <- p.prev
+                ende <- p.prev
+                p <- ende
                 if p === p.next then
-                    continueLoop <- false
+                    continueLoop <-  p !== ende
                 else
-                    again <- true
+                    continueLoop <- true
             else
                 p <- p.next
+                continueLoop <-  p !== ende
 
-            if continueLoop && not again && p === end_ then
-                continueLoop <- false
-
-        end_
+        ende
 
 // check whether a polygon node forms a valid ear with adjacent nodes
 let isEar(ear: Node) : bool =
@@ -457,11 +455,11 @@ let cureLocalIntersections(start: Node, triangles: ResizeArray<int>) : Node =
             removeNode(p)
             removeNode(p.next)
 
-            p <- b
             start <- b
+            p <- start
 
         p <- p.next
-        if p === start then continueLoop <- false
+        continueLoop <- p !== start
 
     filterPoints(p, Unchecked.defaultof<Node>)
 
