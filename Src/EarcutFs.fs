@@ -119,6 +119,7 @@ let intersectsPolygon(a: Node, b: Node) : bool =
     let mutable p = a
     let mutable result = false
     let mutable continueLoop = true
+    // do-while loop: execute once then check condition
     while continueLoop do
         if p.i <> a.i && p.next.i <> a.i && p.i <> b.i && p.next.i <> b.i &&
             intersects(p, p.next, a, b) then
@@ -143,6 +144,7 @@ let middleInside(a: Node, b: Node) : bool =
     let px = (a.x + b.x) / 2.0
     let py = (a.y + b.y) / 2.0
     let mutable continueLoop = true
+    // do-while loop: execute once then check condition
     while continueLoop do
         if ((p.y > py) <> (p.next.y > py)) && p.next.y <> p.y &&
             (px < (p.next.x - p.x) * (py - p.y) / (p.next.y - p.y) + p.x) then
@@ -541,7 +543,7 @@ and earcutLinked(ear: Node, triangles: ResizeArray<int>, dim: int, minX: float, 
 
                     continueLoop <- false
 
-let compareXYSlope(a: Node, b: Node) : int =
+let compareXYSlope(a: Node) (b: Node) : int =
     let mutable result = a.x - b.x
     // when the left-most point of 2 holes meet at a vertex, sort the holes counterclockwise so that when we find
     // the bridge to the outer shell is always the point that they meet at.
@@ -551,7 +553,10 @@ let compareXYSlope(a: Node, b: Node) : int =
             let aSlope = (a.next.y - a.y) / (a.next.x - a.x)
             let bSlope = (b.next.y - b.y) / (b.next.x - b.x)
             result <- aSlope - bSlope
-    int result
+
+    if result = 0.0 then 0
+    else if result > 0.0 then 1
+    else -1
 
 // David Eberly's algorithm for finding a bridge between hole and outer polygon
 let findHoleBridge(hole: Node, outerNode: Node) : Node =
@@ -640,7 +645,8 @@ let eliminateHoles(data: ResizeArray<float>, holeIndices: ResizeArray<int>, oute
         if list === list.next then list.steiner <- true
         queue.Add(getLeftmost(list))
 
-    queue.Sort(fun a b -> compareXYSlope(a, b))
+
+    queue.Sort compareXYSlope
 
     // process holes from left to right
     let mutable outerNode = outerNode
