@@ -489,11 +489,11 @@ let rec splitEarcut(start: Node, triangles: ResizeArray<int>, dim: int, minX: fl
                 innerContinue <- false
             else
                 b <- b.next
-                if b === a.prev then innerContinue <- false
+                innerContinue <-  b !== a.prev
 
         if outerContinue then
             a <- a.next
-            if a === start then outerContinue <- false
+            outerContinue <- a !== start
 
 // main ear slicing loop which triangulates a polygon (given as a linked list)
 and earcutLinked(ear: Node, triangles: ResizeArray<int>, dim: int, minX: float, minY: float, invSize: float, pass: int) : unit =
@@ -652,7 +652,7 @@ let eliminateHoles(data: ResizeArray<float>, holeIndices: ResizeArray<int>, oute
     outerNode
 
 let earcut(data: ResizeArray<float>, holeIndices: ResizeArray<int>, dim: int) : ResizeArray<int> =
-    let hasHoles =  not (obj.ReferenceEquals(holeIndices, null))   && holeIndices.Count > 0
+    let hasHoles =  not (obj.ReferenceEquals(holeIndices, null))  && holeIndices.Count > 0
     let outerLen = if hasHoles then holeIndices.[0] * dim else data.Count
     let mutable outerNode = linkedList(data, 0, outerLen, dim, true)
     let triangles = ResizeArray<int>()
@@ -718,7 +718,7 @@ let deviation(data: ResizeArray<float>, holeIndices: ResizeArray<int>, dim: int,
     else abs((trianglesArea - polygonArea) / polygonArea)
 
 // turn a polygon in a multi-dimensional array form (e.g. as in GeoJSON) into a form Earcut accepts
-let flatten(data: ResizeArray<ResizeArray<ResizeArray<float>>>) : ResizeArray<float> * ResizeArray<int> * int =
+let flatten(data: ResizeArray<ResizeArray<ResizeArray<float>>>)  =
     let vertices = ResizeArray<float>()
     let holes = ResizeArray<int>()
     let dimensions = data.[0].[0].Count
@@ -734,4 +734,4 @@ let flatten(data: ResizeArray<ResizeArray<ResizeArray<float>>>) : ResizeArray<fl
             holes.Add(holeIndex)
         prevLen <- ring.Count
 
-    (vertices, holes, dimensions)
+    {|vertices = vertices; holes = holes; dimensions = dimensions|}

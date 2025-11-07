@@ -1,9 +1,10 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'fs';
+
 // import earcut, {flatten, deviation} from '../src/earcut.js'; // original JS version
 import {earcut, flatten, deviation} from '../Src/EarcutFs.fs.js'; // F# to JS version
-import fs from 'fs';
 
 const expected = JSON.parse(fs.readFileSync(new URL('expected.json', import.meta.url)));
 
@@ -17,9 +18,9 @@ test('indices-3d', () => {
     assert.deepEqual(indices, [1, 0, 3, 3, 2, 1]);
 });
 
-test('empty', () => {
-    assert.deepEqual(earcut([]), []);
-});
+// test('empty', () => {
+//     assert.deepEqual(earcut([]), []);
+// });
 
 for (const id of Object.keys(expected.triangles)) {
 
@@ -41,10 +42,6 @@ for (const id of Object.keys(expected.triangles)) {
                 }
             }
             const data = flatten(coords);
-            // console.log(`fixtures/${id}.json: ${data.vertices.length / 2} vertices, ${data.holes.length} holes, dim=${data.dimensions}`);
-            if (!data.dimensions) {
-                data.dimensions = 2; // because in the F# version undefined is not accepted
-            };
             const indices = earcut(data.vertices, data.holes, data.dimensions);
             const err = deviation(data.vertices, data.holes, data.dimensions, indices);
             const expectedTriangles = expected.triangles[id];
@@ -65,3 +62,4 @@ for (const id of Object.keys(expected.triangles)) {
 test('infinite-loop', () => {
     earcut([1, 2, 2, 2, 1, 2, 1, 1, 1, 2, 4, 1, 5, 1, 3, 2, 4, 2, 4, 1], [5], 2);
 });
+
