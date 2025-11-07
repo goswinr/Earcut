@@ -32,7 +32,7 @@ type Node = {
     mutable steiner: bool
 }
 
-let createNode(i: int, x: float, y: float) : Node =
+let inline internal createNode(i: int, x: float, y: float) : Node =
     {
         i = i
         x = x
@@ -45,16 +45,16 @@ let createNode(i: int, x: float, y: float) : Node =
         steiner = false
     }
 
-let (===) (a:Node) (b:Node) = obj.ReferenceEquals(a, b)
+let inline internal (===) (a:Node) (b:Node) = obj.ReferenceEquals(a, b)
 
-let (!==) (a:Node) (b:Node) = not <| obj.ReferenceEquals(a, b)
+let inline internal (!==) (a:Node) (b:Node) = not <| obj.ReferenceEquals(a, b)
 
-let notNull (node: Node) : bool = not <| obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
+let inline internal notNull (node: Node) : bool = not <| obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
 
-let isNull (node: Node) : bool = obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
+let inline internal isNull (node: Node) : bool = obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
 
 // create a node and optionally link it with previous one (in a circular doubly linked list)
-let insertNode (i: int, x: float, y: float, last: Node) : Node =
+let inline internal insertNode (i: int, x: float, y: float, last: Node) : Node =
     let p = createNode(i, x, y)
     if isNull last then
         p.prev <- p
@@ -66,7 +66,7 @@ let insertNode (i: int, x: float, y: float, last: Node) : Node =
         last.next <- p
     p
 
-let removeNode (p: Node) : unit =
+let inline internal removeNode (p: Node) : unit =
     p.next.prev <- p.prev
     p.prev.next <- p.next
 
@@ -74,34 +74,34 @@ let removeNode (p: Node) : unit =
     if notNull p.nextZ then p.nextZ.prevZ <- p.prevZ
 
 // signed area of a triangle
-let area (p: Node, q: Node, r: Node) : float =
+let inline internal area (p: Node, q: Node, r: Node) : float =
     (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y)
 
 // check if two points are equal
-let equals (p1: Node, p2: Node) : bool =
+let inline internal equals (p1: Node, p2: Node) : bool =
     p1.x = p2.x && p1.y = p2.y
 
 // check if a point lies within a convex triangle
-let pointInTriangle(ax: float, ay: float, bx: float, by: float, cx: float, cy: float, px: float, py: float) : bool =
+let inline internal pointInTriangle(ax: float, ay: float, bx: float, by: float, cx: float, cy: float, px: float, py: float) : bool =
     (cx - px) * (ay - py) >= (ax - px) * (cy - py) &&
     (ax - px) * (by - py) >= (bx - px) * (ay - py) &&
     (bx - px) * (cy - py) >= (cx - px) * (by - py)
 
 // check if a point lies within a convex triangle but false if its equal to the first point of the triangle
-let pointInTriangleExceptFirst(ax: float, ay: float, bx: float, by: float, cx: float, cy: float, px: float, py: float) : bool =
+let inline internal pointInTriangleExceptFirst(ax: float, ay: float, bx: float, by: float, cx: float, cy: float, px: float, py: float) : bool =
     not (ax = px && ay = py) && pointInTriangle(ax, ay, bx, by, cx, cy, px, py)
 
 // for collinear points p, q, r, check if point q lies on segment pr
-let onSegment(p: Node, q: Node, r: Node) : bool =
+let inline internal onSegment(p: Node, q: Node, r: Node) : bool =
     q.x <= max p.x r.x && q.x >= min p.x r.x && q.y <= max p.y r.y && q.y >= min p.y r.y
 
-let sign(num: float) : int =
+let inline internal sign(num: float) : int =
     if num > 0.0 then 1
     elif num < 0.0 then -1
     else 0
 
 // check if two segments intersect
-let intersects(p1: Node, q1: Node, p2: Node, q2: Node) : bool =
+let inline internal intersects(p1: Node, q1: Node, p2: Node, q2: Node) : bool =
     let o1 = sign(area(p1, q1, p2))
     let o2 = sign(area(p1, q1, q2))
     let o3 = sign(area(p2, q2, p1))
@@ -115,7 +115,7 @@ let intersects(p1: Node, q1: Node, p2: Node, q2: Node) : bool =
     else false
 
 // check if a polygon diagonal intersects any polygon segments
-let intersectsPolygon(a: Node, b: Node) : bool =
+let inline internal intersectsPolygon(a: Node, b: Node) : bool =
     let mutable p = a
     let mutable result = false
     let mutable continueLoop = true
@@ -131,14 +131,14 @@ let intersectsPolygon(a: Node, b: Node) : bool =
     result
 
 // check if a polygon diagonal is locally inside the polygon
-let locallyInside(a: Node, b: Node) : bool =
+let inline internal locallyInside(a: Node, b: Node) : bool =
     if area(a.prev, a, a.next) < 0.0 then
         area(a, b, a.next) >= 0.0 && area(a, a.prev, b) >= 0.0
     else
         area(a, b, a.prev) < 0.0 || area(a, a.next, b) < 0.0
 
 // check if the middle point of a polygon diagonal is inside the polygon
-let middleInside(a: Node, b: Node) : bool =
+let inline internal middleInside(a: Node, b: Node) : bool =
     let mutable p = a
     let mutable inside = false
     let px = (a.x + b.x) / 2.0
@@ -155,7 +155,7 @@ let middleInside(a: Node, b: Node) : bool =
 
 // link two polygon vertices with a bridge; if the vertices belong to the same ring, it splits polygon into two;
 // if one belongs to the outer ring and another to a hole, it merges it into a single ring
-let splitPolygon(a: Node, b: Node) : Node =
+let inline internal splitPolygon(a: Node, b: Node) : Node =
     let a2 = createNode(a.i, a.x, a.y)
     let b2 = createNode(b.i, b.x, b.y)
     let an = a.next
@@ -176,14 +176,14 @@ let splitPolygon(a: Node, b: Node) : Node =
     b2
 
 // check if a diagonal between two polygon nodes is valid (lies in polygon interior)
-let isValidDiagonal(a: Node, b: Node) : bool =
+let inline internal isValidDiagonal(a: Node, b: Node) : bool =
     a.next.i <> b.i && a.prev.i <> b.i && not (intersectsPolygon(a, b)) && // doesn't intersect other edges
     (locallyInside(a, b) && locallyInside(b, a) && middleInside(a, b) && // locally visible
      (area(a.prev, a, b.prev) <> 0.0 || area(a, b.prev, b) <> 0.0) || // does not create opposite-facing sectors
      equals(a, b) && area(a.prev, a, a.next) > 0.0 && area(b.prev, b, b.next) > 0.0) // special zero-length case
 
 // z-order of a point given coords and inverse of the longer side of data bbox
-let zOrder(x: float, y: float, minX: float, minY: float, invSize: float) : int =
+let inline internal zOrder(x: float, y: float, minX: float, minY: float, invSize: float) : int =
     // coords are transformed into non-negative 15-bit integer range
     let mutable x = int ((x - minX) * invSize)
     let mutable y = int ((y - minY) * invSize)
@@ -201,7 +201,7 @@ let zOrder(x: float, y: float, minX: float, minY: float, invSize: float) : int =
     x ||| (y <<< 1)
 
 // find the leftmost node of a polygon ring
-let getLeftmost(start: Node) : Node =
+let inline internal getLeftmost(start: Node) : Node =
     let mutable p = start
     let mutable leftmost = start
     let mutable continueLoop = true
@@ -214,12 +214,12 @@ let getLeftmost(start: Node) : Node =
     leftmost
 
 // whether sector in vertex m contains sector in vertex p in the same coordinates
-let sectorContainsSector(m: Node, p: Node) : bool =
+let inline internal sectorContainsSector(m: Node, p: Node) : bool =
     area(m.prev, m, p.prev) < 0.0 && area(p.next, m, m.next) < 0.0
 
 // Simon Tatham's linked list merge sort algorithm
 // http://www.chiark.greenend.org.uk/~sgtatham/algorithms/listsort.html
-let rec sortLinked(list: Node) : Node =
+let rec internal sortLinked(list: Node) : Node =
     let mutable numMerges = 0
     let mutable inSize = 1
     let mutable list = list
@@ -272,7 +272,7 @@ let rec sortLinked(list: Node) : Node =
     list
 
 // interlink polygon nodes in z-order
-let indexCurve(start: Node, minX: float, minY: float, invSize: float) : unit =
+let internal indexCurve(start: Node, minX: float, minY: float, invSize: float) : unit =
     let mutable p = start
     let mutable continueLoop = true
     // do-while loop: execute once then check condition
@@ -288,7 +288,7 @@ let indexCurve(start: Node, minX: float, minY: float, invSize: float) : unit =
 
     sortLinked(p) |> ignore
 
-let signedArea(data: ResizeArray<float>, start: int, end_: int, dim: int) : float =
+let inline internal signedArea(data: ResizeArray<float>, start: int, end_: int, dim: int) : float =
     let mutable sum = 0.0
     let mutable i = start
     let mutable j = end_ - dim
@@ -299,7 +299,7 @@ let signedArea(data: ResizeArray<float>, start: int, end_: int, dim: int) : floa
     sum
 
 // create a circular doubly linked list from polygon points in the specified winding order
-let linkedList(data: ResizeArray<float>, start: int, end_: int, dim: int, clockwise: bool) : Node =
+let internal linkedList(data: ResizeArray<float>, start: int, end_: int, dim: int, clockwise: bool) : Node =
     let mutable last = Unchecked.defaultof<Node>
 
     if clockwise = (signedArea(data, start, end_, dim) > 0.0) then
@@ -321,7 +321,7 @@ let linkedList(data: ResizeArray<float>, start: int, end_: int, dim: int, clockw
 
 // eliminate colinear or duplicate points
 // in JS this sometimes gets called with just one argument
-let rec filterPoints(start: Node, ende: Node) : Node =
+let rec internal filterPoints(start: Node, ende: Node) : Node =
     if isNull start then
         start
     else
@@ -347,7 +347,7 @@ let rec filterPoints(start: Node, ende: Node) : Node =
         ende
 
 // check whether a polygon node forms a valid ear with adjacent nodes
-let isEar(ear: Node) : bool =
+let internal isEar(ear: Node) : bool =
     let a = ear.prev
     let b = ear
     let c = ear.next
@@ -378,7 +378,7 @@ let isEar(ear: Node) : bool =
             p <- p.next
         result
 
-let isEarHashed(ear: Node, minX: float, minY: float, invSize: float) : bool =
+let internal isEarHashed(ear: Node, minX: float, minY: float, invSize: float) : bool =
     let a = ear.prev
     let b = ear
     let c = ear.next
@@ -439,7 +439,7 @@ let isEarHashed(ear: Node, minX: float, minY: float, invSize: float) : bool =
         result
 
 // go through all polygon nodes and cure small local self-intersections
-let cureLocalIntersections(start: Node, triangles: ResizeArray<int>) : Node =
+let internal cureLocalIntersections(start: Node, triangles: ResizeArray<int>) : Node =
     let mutable p = start
     let mutable start = start
     let mutable continueLoop = true
@@ -466,7 +466,7 @@ let cureLocalIntersections(start: Node, triangles: ResizeArray<int>) : Node =
     filterPoints(p, Unchecked.defaultof<Node>)
 
 // try splitting polygon into two and triangulate them independently
-let rec splitEarcut(start: Node, triangles: ResizeArray<int>, dim: int, minX: float, minY: float, invSize: float) : unit =
+let rec internal splitEarcut(start: Node, triangles: ResizeArray<int>, dim: int, minX: float, minY: float, invSize: float) : unit =
     // look for a valid diagonal that divides the polygon into two
     let mutable a = start
     let mutable outerContinue = true
@@ -543,7 +543,7 @@ and earcutLinked(ear: Node, triangles: ResizeArray<int>, dim: int, minX: float, 
 
                     continueLoop <- false
 
-let compareXYSlope(a: Node) (b: Node) : int =
+let internal compareXYSlope(a: Node) (b: Node) : int =
     let mutable result = a.x - b.x
     // when the left-most point of 2 holes meet at a vertex, sort the holes counterclockwise so that when we find
     // the bridge to the outer shell is always the point that they meet at.
@@ -559,7 +559,7 @@ let compareXYSlope(a: Node) (b: Node) : int =
     else -1
 
 // David Eberly's algorithm for finding a bridge between hole and outer polygon
-let findHoleBridge(hole: Node, outerNode: Node) : Node =
+let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
     let mutable p = outerNode
     let hx = hole.x
     let hy = hole.y
@@ -623,7 +623,7 @@ let findHoleBridge(hole: Node, outerNode: Node) : Node =
             m
 
 // find a bridge between vertices that connects hole with an outer ring and link it
-let eliminateHole(hole: Node, outerNode: Node) : Node =
+let internal eliminateHole(hole: Node, outerNode: Node) : Node =
     let bridge = findHoleBridge(hole, outerNode)
     if isNull bridge then
         outerNode
@@ -635,7 +635,7 @@ let eliminateHole(hole: Node, outerNode: Node) : Node =
         filterPoints(bridge, bridge.next)
 
 // link every hole into the outer loop, producing a single-ring polygon without holes
-let eliminateHoles(data: ResizeArray<float>, holeIndices: ResizeArray<int>, outerNode: Node, dim: int) : Node =
+let internal eliminateHoles(data: ResizeArray<float>, holeIndices: ResizeArray<int>, outerNode: Node, dim: int) : Node =
     let queue = ResizeArray<Node>()
 
     for i = 0 to holeIndices.Count - 1 do
