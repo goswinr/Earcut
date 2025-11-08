@@ -751,5 +751,5 @@ let flatten(data: float[][][])  =
             holes.Add(holeIndex)
         prevLen <- ring.Length
 
-    {|vertices = vertices.ToArray(); holes = holes; dimensions = dimensions|}
+    {|vertices = vertices.ToArray(); holes = holes.ToArray(); dimensions = dimensions|}
 

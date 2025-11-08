@@ -8,13 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
+## [3.0.2-r2] - 2025-11-08
+### Added
+- More test documentation in README.md
+
+
 ## [3.0.2-r1] - 2025-11-08
 ### Changed
 - First release of Port of Mapbox Earcut version 3.0.2 to F#
 
 
 
-[3.0.2-r1]: https://github.com/goswinr/ResizeArrayT/releases/tag/v3.0.2-r1
+[3.0.2-r2]: https://github.com/goswinr/Earcut/compare/v3.0.2-r1...v3.0.2-r2
+[3.0.2-r1]: https://github.com/goswinr/Earcut/releases/tag/v3.0.2-r1
 
 
 
