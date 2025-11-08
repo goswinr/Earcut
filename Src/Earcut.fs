@@ -7,11 +7,8 @@
 // v3.0.2 from 2025-11-6
 module Earcut
 
-open System
-open System.Collections.Generic
 
-
-type Node = {
+type internal Node = {
     /// vertex index in coordinates array
     i: int
     /// vertex x coordinates
@@ -288,7 +285,7 @@ let internal indexCurve(start: Node, minX: float, minY: float, invSize: float) :
 
     sortLinked(p) |> ignore
 
-let inline internal signedArea(data: ResizeArray<float>, start: int, end_: int, dim: int) : float =
+let inline internal signedArea(data: array<float>, start: int, end_: int, dim: int) : float =
     let mutable sum = 0.0
     let mutable i = start
     let mutable j = end_ - dim
@@ -299,7 +296,7 @@ let inline internal signedArea(data: ResizeArray<float>, start: int, end_: int, 
     sum
 
 // create a circular doubly linked list from polygon points in the specified winding order
-let internal linkedList(data: ResizeArray<float>, start: int, end_: int, dim: int, clockwise: bool) : Node =
+let internal linkedList(data: array<float>, start: int, end_: int, dim: int, clockwise: bool) : Node =
     let mutable last = Unchecked.defaultof<Node>
 
     if clockwise = (signedArea(data, start, end_, dim) > 0.0) then
@@ -496,7 +493,7 @@ let rec internal splitEarcut(start: Node, triangles: ResizeArray<int>, dim: int,
             outerContinue <- a !== start
 
 // main ear slicing loop which triangulates a polygon (given as a linked list)
-and earcutLinked(ear: Node, triangles: ResizeArray<int>, dim: int, minX: float, minY: float, invSize: float, pass: int) : unit =
+and internal earcutLinked(ear: Node, triangles: ResizeArray<int>, dim: int, minX: float, minY: float, invSize: float, pass: int) : unit =
     if isNull ear then ()
     else
         // interlink polygon nodes in z-order
@@ -635,12 +632,12 @@ let internal eliminateHole(hole: Node, outerNode: Node) : Node =
         filterPoints(bridge, bridge.next)
 
 // link every hole into the outer loop, producing a single-ring polygon without holes
-let internal eliminateHoles(data: ResizeArray<float>, holeIndices: ResizeArray<int>, outerNode: Node, dim: int) : Node =
+let internal eliminateHoles(data: array<float>, holeIndices: ResizeArray<int>, outerNode: Node, dim: int) : Node =
     let queue = ResizeArray<Node>()
 
     for i = 0 to holeIndices.Count - 1 do
         let start = holeIndices.[i] * dim
-        let end_ = if i < holeIndices.Count - 1 then holeIndices.[i + 1] * dim else data.Count
+        let end_ = if i < holeIndices.Count - 1 then holeIndices.[i + 1] * dim else data.Length
         let list = linkedList(data, start, end_, dim, false)
         if list === list.next then list.steiner <- true
         queue.Add(getLeftmost(list))
@@ -655,57 +652,71 @@ let internal eliminateHoles(data: ResizeArray<float>, holeIndices: ResizeArray<i
 
     outerNode
 
-let earcut(data: ResizeArray<float>, holeIndices: ResizeArray<int>, dim: int) : ResizeArray<int> =
-    let hasHoles =  not (obj.ReferenceEquals(holeIndices, null))  && holeIndices.Count > 0
-    let outerLen = if hasHoles then holeIndices.[0] * dim else data.Count
-    let mutable outerNode = linkedList(data, 0, outerLen, dim, true)
+
+///<summary> Triangulates a polygon with holes.</summary>
+///<param name="vertices">A array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...].</param>
+///<param name="holeIndices">An array of hole starting indices in the vertices array. Use `null` if there are no holes.</param>
+///<param name="dim">The number of coordinates per vertex in the vertices array:
+/// 2 if the vertices array is made of x and y coordinates only.
+/// 3 if it is made of x, y and z coordinates.</param>
+/// <returns>A list of integers.
+/// They are indices into the vertices array.
+/// Every 3 integers represent the corner vertices of a triangle.</returns>
+let earcut(vertices: array<float>, holeIndices: ResizeArray<int>, dim: int) : ResizeArray<int> =
     let triangles = ResizeArray<int>()
-
-    if isNull outerNode || outerNode.next === outerNode.prev then triangles
-    else
-        let mutable minX = 0.0
-        let mutable minY = 0.0
-        let mutable invSize = 0.0
-
-        if hasHoles then outerNode <- eliminateHoles(data, holeIndices, outerNode, dim)
-
-        // if the shape is not too simple, we'll use z-order curve hash later; calculate polygon bbox
-        if data.Count > 80 * dim then
-            minX <- data.[0]
-            minY <- data.[1]
-            let mutable maxX = minX
-            let mutable maxY = minY
-
-            let mutable i = dim
-            while i < outerLen do
-                let x = data.[i]
-                let y = data.[i + 1]
-                if x < minX then minX <- x
-                if y < minY then minY <- y
-                if x > maxX then maxX <- x
-                if y > maxY then maxY <- y
-                i <- i + dim
-
-            // minX, minY and invSize are later used to transform coords into integers for z-order calculation
-            invSize <- max (maxX - minX) (maxY - minY)
-            invSize <- if invSize <> 0.0 then 32767.0 / invSize else 0.0
-
-        earcutLinked(outerNode, triangles, dim, minX, minY, invSize, 0)
-
+    if vertices.Length < dim * 3 then
         triangles
+    else
+        let hasHoles =  not (obj.ReferenceEquals(holeIndices, null))  && holeIndices.Count > 0
+        let outerLen = if hasHoles then holeIndices.[0] * dim else vertices.Length
+        let mutable outerNode = linkedList(vertices, 0, outerLen, dim, true)
 
-// return a percentage difference between the polygon area and its triangulation area;
-// used to verify correctness of triangulation
-let deviation(data: ResizeArray<float>, holeIndices: ResizeArray<int>, dim: int, triangles: ResizeArray<int>) : float =
+        if isNull outerNode || outerNode.next === outerNode.prev then triangles
+        else
+            let mutable minX = 0.0
+            let mutable minY = 0.0
+            let mutable invSize = 0.0
+
+            if hasHoles then outerNode <- eliminateHoles(vertices, holeIndices, outerNode, dim)
+
+            // if the shape is not too simple, we'll use z-order curve hash later; calculate polygon bbox
+            if vertices.Length > 80 * dim then
+                minX <- vertices.[0]
+                minY <- vertices.[1]
+                let mutable maxX = minX
+                let mutable maxY = minY
+
+                let mutable i = dim
+                while i < outerLen do
+                    let x = vertices.[i]
+                    let y = vertices.[i + 1]
+                    if x < minX then minX <- x
+                    if y < minY then minY <- y
+                    if x > maxX then maxX <- x
+                    if y > maxY then maxY <- y
+                    i <- i + dim
+
+                // minX, minY and invSize are later used to transform coords into integers for z-order calculation
+                invSize <- max (maxX - minX) (maxY - minY)
+                invSize <- if invSize <> 0.0 then 32767.0 / invSize else 0.0
+
+            earcutLinked(outerNode, triangles, dim, minX, minY, invSize, 0)
+
+            triangles
+
+/// Utility function to verify correctness of the triangulation.
+/// Returns a percentage difference between the polygon area and its triangulation area.
+/// used to detect any significant errors in the triangulation process.
+let deviation(vertices: array<float>, holeIndices: ResizeArray<int>, dim: int, triangles: ResizeArray<int>) : float =
     let hasHoles = not (obj.ReferenceEquals(holeIndices, null)) && holeIndices.Count > 0
-    let outerLen = if hasHoles then holeIndices.[0] * dim else data.Count
+    let outerLen = if hasHoles then holeIndices.[0] * dim else vertices.Length
 
-    let mutable polygonArea = abs(signedArea(data, 0, outerLen, dim))
+    let mutable polygonArea = abs(signedArea(vertices, 0, outerLen, dim))
     if hasHoles then
         for i = 0 to holeIndices.Count - 1 do
             let start = holeIndices.[i] * dim
-            let end_ = if i < holeIndices.Count - 1 then holeIndices.[i + 1] * dim else data.Count
-            polygonArea <- polygonArea - abs(signedArea(data, start, end_, dim))
+            let end_ = if i < holeIndices.Count - 1 then holeIndices.[i + 1] * dim else vertices.Length
+            polygonArea <- polygonArea - abs(signedArea(vertices, start, end_, dim))
 
     let mutable trianglesArea = 0.0
     let mutable i = 0
@@ -714,18 +725,20 @@ let deviation(data: ResizeArray<float>, holeIndices: ResizeArray<int>, dim: int,
         let b = triangles.[i + 1] * dim
         let c = triangles.[i + 2] * dim
         trianglesArea <- trianglesArea + abs(
-            (data.[a] - data.[c]) * (data.[b + 1] - data.[a + 1]) -
-            (data.[a] - data.[b]) * (data.[c + 1] - data.[a + 1]))
+            (vertices.[a] - vertices.[c]) * (vertices.[b + 1] - vertices.[a + 1]) -
+            (vertices.[a] - vertices.[b]) * (vertices.[c + 1] - vertices.[a + 1]))
         i <- i + 3
 
     if polygonArea = 0.0 && trianglesArea = 0.0 then 0.0
     else abs((trianglesArea - polygonArea) / polygonArea)
 
-// turn a polygon in a multi-dimensional array form (e.g. as in GeoJSON) into a form Earcut accepts
-let flatten(data: ResizeArray<ResizeArray<ResizeArray<float>>>)  =
+
+
+/// Utility function to turn a polygon in a multi-dimensional array form (e.g. as in GeoJSON) into a form Earcut accepts
+let flatten(data: float[][][])  =
     let vertices = ResizeArray<float>()
     let holes = ResizeArray<int>()
-    let dimensions = data.[0].[0].Count
+    let dimensions = data.[0].[0].Length
     let mutable holeIndex = 0
     let mutable prevLen = 0
 
@@ -736,6 +749,7 @@ let flatten(data: ResizeArray<ResizeArray<ResizeArray<float>>>)  =
         if prevLen > 0 then
             holeIndex <- holeIndex + prevLen
             holes.Add(holeIndex)
-        prevLen <- ring.Count
+        prevLen <- ring.Length
 
-    {|vertices = vertices; holes = holes; dimensions = dimensions|}
+    {|vertices = vertices.ToArray(); holes = holes; dimensions = dimensions|}
+

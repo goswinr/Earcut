@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 
 // import earcut, {flatten, deviation} from '../src/earcut.js'; // original JS version
-import {earcut, flatten, deviation} from '../Src/EarcutFs.fs.js'; // F# to JS version
+import {earcut, flatten, deviation} from '../Src/Earcut.fs.js'; // F# to JS version
 
 const expected = JSON.parse(fs.readFileSync(new URL('expected.json', import.meta.url)));
 
@@ -18,9 +18,9 @@ test('indices-3d', () => {
     assert.deepEqual(indices, [1, 0, 3, 3, 2, 1]);
 });
 
-// test('empty', () => {
-//     assert.deepEqual(earcut([]), []);
-// });
+test('empty', () => {
+    assert.deepEqual(earcut([], null, 2), []);
+});
 
 for (const id of Object.keys(expected.triangles)) {
 
