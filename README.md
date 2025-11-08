@@ -10,14 +10,14 @@
 ![code size](https://img.shields.io/github/languages/code-size/goswinr/Earcut.svg)
 
 The fastest and smallest polygon triangulation library. <br>
-A standalone port of Mapbox's Earcut algorithm to F#.
+A port of Mapbox's Earcut algorithm to F#.
 
 https://github.com/mapbox/earcut
 
 v3.0.2 ported to F# on 2025-11-8
 
 
-#### Status
+### Status
 
 Stable for .NET 4.7 and .NET 6.0 and JS via Fable.
 
@@ -27,12 +27,12 @@ All relevant code is in  [Earcut.fs](https://github.com/goswinr/Euclid.Earcut/bl
 It contains the ported code without any major changes to the original logic. <br>
 It has no dependencies.
 
-#### Performance
+### Performance
 
 The F# port has about the same performance as the original JS version when compiled back to JS with Fable.
 
 
-#### The algorithm
+### The algorithm
 
 The library implements a modified ear slicing algorithm, <br>
 optimized by [z-order curve](http://en.wikipedia.org/wiki/Z-order_curve) hashing <br>
@@ -44,7 +44,7 @@ It's based on ideas from
 [FIST: Fast Industrial-Strength Triangulation of Polygons](http://www.cosy.sbg.ac.at/~held/projects/triang/triang.html) by Martin Held <br>
 and [Triangulation by Ear Clipping](http://www.geometrictools.com/Documentation/TriangulationByEarClipping.pdf) by David Eberly. <br>
 
-#### Why another triangulation library?
+### Why another triangulation library?
 
 The aim of the original mapbox Earcut project is to create a triangulation library <br>
 that is **fast enough for real-time triangulation in the browser**, <br>
@@ -54,7 +54,7 @@ while being robust enough to handle most practical datasets without crashing or 
 If you want to get correct triangulation even on very bad data with lots of self-intersections <br>
 and earcut is not precise enough, take a look at [libtess.js](https://github.com/brendankenny/libtess.js).
 
-#### Usage
+### Usage
 
 ```fsharp
 let triangles = Earcut.earcut([| 10.;0.; 0.;50.; 60.;60.; 70.;10.|], [||], 2) // returns [1;0;3; 3;2;1]
@@ -76,11 +76,11 @@ Each group of three vertex indices in the resulting array forms a triangle.
 
 ```fsharp
 // Triangulating a polygon with a hole
-Earcut.earcut([|0.;0.; 100.;0.; 100.;100.; 0.;100.;  20.;20.; 80.;20.; 80.;80.; 20.;80.|]; ResizeArray[4]; 2)
+Earcut.earcut([|0.;0.; 100.;0.; 100.;100.; 0.;100.;  20.;20.; 80.;20.; 80.;80.; 20.;80.|], ResizeArray[4], 2)
 // returns [3;0;4; 5;4;0; 3;4;7; 5;0;1; 2;3;7; 6;5;1; 2;7;6; 6;1;2]
 
 // Triangulating a polygon with 3d coordinates
-Earcut.earcut([|10.;0.;1.; 0.;50.;2.; 60.;60.;3.; 70.;10.;4.|]; null; 3)
+Earcut.earcut([|10.;0.;1.; 0.;50.;2.; 60.;60.;3.; 70.;10.;4.|], null, 3)
 // returns [1;0;3; 3;2;1]
 ```
 
@@ -106,14 +106,14 @@ Returns the relative difference between the total area of triangles and the area
 `0` means the triangulation is fully correct.
 
 
-## Build for .NET 4.7 and 6.0
+### Build for .NET 4.7 and 6.0
 
 `dotnet build`
 
 
-## Build to JS with Fable
+### Build to JS with Fable
 
-if you don't have Fable installed yet run:
+If you don't have Fable installed yet run:
 
 `dotnet tool install fable`
 
@@ -121,7 +121,7 @@ then build to JS with:
 
 `dotnet fable`
 
-## Run Tests
+### Run Tests
 
 build to JS with `dotnet fable` <br>
 run tests with `node Test/test.js`
