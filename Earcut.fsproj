@@ -34,7 +34,7 @@
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
-    <PackageIcon>logo.png</PackageIcon>
+    <PackageIcon>logo128.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <DebugType>embedded</DebugType>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
@@ -45,7 +45,7 @@
     <PackageProjectUrl>https://goswinr.github.io/Earcut</PackageProjectUrl>
     <FsDocsFaviconSource>img/favicon.ico</FsDocsFaviconSource>
     <FsDocsWarnOnMissingDocs>true</FsDocsWarnOnMissingDocs>
-    <ChangelogFile>CHANGELOG.md</ChangelogFile>
+    <ChangelogFile>./CHANGELOG.md</ChangelogFile>
   </PropertyGroup>
 
   <ItemGroup>
@@ -54,8 +54,8 @@
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="8.0.0" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers" />
     <PackageReference Include="Ionide.KeepAChangelog.Tasks" Version="0.1.8" PrivateAssets="all" />
 
-    <None Include="README.md" Pack="true" PackagePath="" />
-    <None Include="Src/logo.png" Pack="true" PackagePath="" />  <!--PackagePath = "" makes the file available to nuget pack tool-->
+    <None Include="./README.md" Pack="true" PackagePath="" />
+    <None Include="./Docs/img/logo128.png" Pack="true" PackagePath="" />  <!--PackagePath = "" makes the file available to nuget pack tool-->
     <Content Include="*.fsproj; **/*.fs; **/*.fsi" PackagePath="fable/" />
 
     <Compile Include="Src/Earcut.fs" />

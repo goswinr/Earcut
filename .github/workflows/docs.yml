@@ -1,5 +1,7 @@
 name: Docs
 
+# make sure fsdocs is part of dotnet-tools.json !!!
+
 # copied and adapted from https://fsprojects.github.io/FSharp.Formatting/zero-to-hero.html#Ship-it
 
 # Trigger this Action when new code is pushed to the main branch
@@ -25,7 +27,6 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '9.x'
-
 
       - name: Restore dotnet tools
         run: dotnet tool restore

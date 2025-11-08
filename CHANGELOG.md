@@ -8,13 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 
-## [3.0.2-beta] - 2025-11-08
+## [3.0.2-r1] - 2025-11-08
 ### Changed
-- First release of port of Mapbox Earcut to F#. form version 3.0.2.
+- First release of Port of Mapbox Earcut version 3.0.2 to F#
 
 
 
-[3.0.2-beta]: https://github.com/goswinr/ResizeArrayT/releases/tag/v3.0.2-beta
+[3.0.2-r1]: https://github.com/goswinr/ResizeArrayT/releases/tag/v3.0.2-r1
 
 
 

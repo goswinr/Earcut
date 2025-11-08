@@ -1,4 +1,4 @@
-![Logo](https://raw.githubusercontent.com/goswinr/Earcut/main/Src/logo.png)
+![Logo](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/img/logo128.png)
 # Earcut
 
 
@@ -14,12 +14,13 @@ A port of Mapbox's Earcut algorithm to F#.
 
 https://github.com/mapbox/earcut
 
-v3.0.2 ported to F# on 2025-11-8
 
 
 ### Status
 
 Stable for .NET 4.7 and .NET 6.0 and JS via Fable.
+
+v3.0.2 ported to F# on 2025-11-8
 
 [All tests](https://github.com/mapbox/earcut/blob/main/test/test.js) of the original JS version pass.
 
@@ -60,23 +61,25 @@ and earcut is not precise enough, take a look at [libtess.js](https://github.com
 let triangles = Earcut.earcut([| 10.;0.; 0.;50.; 60.;60.; 70.;10.|], [||], 2) // returns [1;0;3; 3;2;1]
 ```
 
-Signature:  <br>
-`val earcut:
-   vertices   : float array *
-   holeIndices: ResizeArray<int> *
-   dimensions : int
-             -> ResizeArray<int>`.
+**Parameters:**
 
-* `vertices` is a flat array of vertex coordinates like `[x0,y0, x1,y1, x2,y2, ...]`. <br>
-* `holeIndices` is a ResizeArray of hole indices if any, or null or empty if there are no holes. <br>
+* `vertices` - A array of vertex coordinates like `[x0, y0, x1, y1, x2, y2, ...]`.
+* `holeIndices` - An array of hole starting indices in the vertices array. Use `null` if there are no holes.<br>
   (e.g. `[5; 8]` for a 12-vertex input would mean one hole with vertices 5 to 7 and another with 8 to 11). <br>
-* `dimensions` is the number of coordinates per vertex in the input array (`2` by default). Only two are used for triangulation (`x` and `y`), and the rest are ignored.
+* `dimensions` - The number of coordinates per vertex in the vertices array:
+  * `2` if the vertices array is made of x and y coordinates only.
+  * `3` if it is made of x, y and z coordinates. <br>
+Only the first two are used for triangulation (`x` and `y`), and the rest are ignored.
 
-Each group of three vertex indices in the resulting array forms a triangle.
+**Returns:**
+
+A list of integers representing indices into the vertices array. Every 3 integers represent the corner vertices of a triangle.
+
+
 
 ```fsharp
 // Triangulating a polygon with a hole
-Earcut.earcut([|0.;0.; 100.;0.; 100.;100.; 0.;100.;  20.;20.; 80.;20.; 80.;80.; 20.;80.|], ResizeArray[4], 2)
+Earcut.earcut([|0.;0.; 100.;0.; 100.;100.; 0.;100.;  20.;20.; 80.;20.; 80.;80.; 20.;80.|], [|4|], 2)
 // returns [3;0;4; 5;4;0; 3;4;7; 5;0;1; 2;3;7; 6;5;1; 2;7;6; 6;1;2]
 
 // Triangulating a polygon with 3d coordinates

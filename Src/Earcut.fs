@@ -632,12 +632,12 @@ let internal eliminateHole(hole: Node, outerNode: Node) : Node =
         filterPoints(bridge, bridge.next)
 
 // link every hole into the outer loop, producing a single-ring polygon without holes
-let internal eliminateHoles(data: array<float>, holeIndices: ResizeArray<int>, outerNode: Node, dim: int) : Node =
+let internal eliminateHoles(data: array<float>, holeIndices: array<int>, outerNode: Node, dim: int) : Node =
     let queue = ResizeArray<Node>()
 
-    for i = 0 to holeIndices.Count - 1 do
+    for i = 0 to holeIndices.Length - 1 do
         let start = holeIndices.[i] * dim
-        let end_ = if i < holeIndices.Count - 1 then holeIndices.[i + 1] * dim else data.Length
+        let end_ = if i < holeIndices.Length - 1 then holeIndices.[i + 1] * dim else data.Length
         let list = linkedList(data, start, end_, dim, false)
         if list === list.next then list.steiner <- true
         queue.Add(getLeftmost(list))
@@ -662,12 +662,12 @@ let internal eliminateHoles(data: array<float>, holeIndices: ResizeArray<int>, o
 /// <returns>A list of integers.
 /// They are indices into the vertices array.
 /// Every 3 integers represent the corner vertices of a triangle.</returns>
-let earcut(vertices: array<float>, holeIndices: ResizeArray<int>, dimensions: int) : ResizeArray<int> =
+let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : ResizeArray<int> =
     let triangles = ResizeArray<int>()
     if vertices.Length < dimensions * 3 then
         triangles
     else
-        let hasHoles =  not (obj.ReferenceEquals(holeIndices, null))  && holeIndices.Count > 0
+        let hasHoles =  not (obj.ReferenceEquals(holeIndices, null))  && holeIndices.Length > 0
         let outerLen = if hasHoles then holeIndices.[0] * dimensions else vertices.Length
         let mutable outerNode = linkedList(vertices, 0, outerLen, dimensions, true)
 
@@ -707,15 +707,15 @@ let earcut(vertices: array<float>, holeIndices: ResizeArray<int>, dimensions: in
 /// Utility function to verify correctness of the triangulation.
 /// Returns a percentage difference between the polygon area and its triangulation area.
 /// used to detect any significant errors in the triangulation process.
-let deviation(vertices: array<float>, holeIndices: ResizeArray<int>, dim: int, triangles: ResizeArray<int>) : float =
-    let hasHoles = not (obj.ReferenceEquals(holeIndices, null)) && holeIndices.Count > 0
+let deviation(vertices: array<float>, holeIndices: array<int>, dim: int, triangles: ResizeArray<int>) : float =
+    let hasHoles = not (obj.ReferenceEquals(holeIndices, null)) && holeIndices.Length > 0
     let outerLen = if hasHoles then holeIndices.[0] * dim else vertices.Length
 
     let mutable polygonArea = abs(signedArea(vertices, 0, outerLen, dim))
     if hasHoles then
-        for i = 0 to holeIndices.Count - 1 do
+        for i = 0 to holeIndices.Length - 1 do
             let start = holeIndices.[i] * dim
-            let end_ = if i < holeIndices.Count - 1 then holeIndices.[i + 1] * dim else vertices.Length
+            let end_ = if i < holeIndices.Length - 1 then holeIndices.[i + 1] * dim else vertices.Length
             polygonArea <- polygonArea - abs(signedArea(vertices, start, end_, dim))
 
     let mutable trianglesArea = 0.0
