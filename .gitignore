@@ -1,0 +1,4 @@
+bin/
+obj/
+fable_modules/
+*.fs.js
