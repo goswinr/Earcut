@@ -143,139 +143,139 @@ run tests with `node Test/test.js`
 ### Images of test cases:
 
 bad-diagonals:
-![](Docs/testimg/bad-diagonals.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/bad-diagonals.png)
 
 bad-hole:
-![](Docs/testimg/bad-hole.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/bad-hole.png)
 
 boxy:
-![](Docs/testimg/boxy.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/boxy.png)
 
 building:
-![](Docs/testimg/building.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/building.png)
 
 collinear-diagonal:
-![](Docs/testimg/collinear-diagonal.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/collinear-diagonal.png)
 
 dude:
-![](Docs/testimg/dude.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/dude.png)
 
 eberly-3:
-![](Docs/testimg/eberly-3.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/eberly-3.png)
 
 eberly-6:
-![](Docs/testimg/eberly-6.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/eberly-6.png)
 
 filtered-bridge-jhl:
-![](Docs/testimg/filtered-bridge-jhl.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/filtered-bridge-jhl.png)
 
 hilbert:
-![](Docs/testimg/hilbert.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/hilbert.png)
 
 hole-touching-outer:
-![](Docs/testimg/hole-touching-outer.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/hole-touching-outer.png)
 
 hourglass:
-![](Docs/testimg/hourglass.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/hourglass.png)
 
 issue111:
-![](Docs/testimg/issue111.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue111.png)
 
 issue119:
-![](Docs/testimg/issue119.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue119.png)
 
 issue131:
-![](Docs/testimg/issue131.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue131.png)
 
 issue142:
-![](Docs/testimg/issue142.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue142.png)
 
 issue149:
-![](Docs/testimg/issue149.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue149.png)
 
 issue16:
-![](Docs/testimg/issue16.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue16.png)
 
 issue17:
-![](Docs/testimg/issue17.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue17.png)
 
 issue186:
-![](Docs/testimg/issue186.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue186.png)
 
 issue29:
-![](Docs/testimg/issue29.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue29.png)
 
 issue34:
-![](Docs/testimg/issue34.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue34.png)
 
 issue35:
-![](Docs/testimg/issue35.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue35.png)
 
 issue45:
-![](Docs/testimg/issue45.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue45.png)
 
 issue52:
-![](Docs/testimg/issue52.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/issue52.png)
 
 outside-ring:
-![](Docs/testimg/outside-ring.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/outside-ring.png)
 
 rain:
-![](Docs/testimg/rain.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/rain.png)
 
 self-touching:
-![](Docs/testimg/self-touching.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/self-touching.png)
 
 shared-points:
-![](Docs/testimg/shared-points.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/shared-points.png)
 
 simplified-us-border:
-![](Docs/testimg/simplified-us-border.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/simplified-us-border.png)
 
 steiner:
-![](Docs/testimg/steiner.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/steiner.png)
 
 touching-holes:
-![](Docs/testimg/touching-holes.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/touching-holes.png)
 
 touching-holes2:
-![](Docs/testimg/touching-holes2.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/touching-holes2.png)
 
 touching-holes3:
-![](Docs/testimg/touching-holes3.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/touching-holes3.png)
 
 touching-holes4:
-![](Docs/testimg/touching-holes4.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/touching-holes4.png)
 
 touching-holes5:
-![](Docs/testimg/touching-holes5.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/touching-holes5.png)
 
 touching-holes6:
-![](Docs/testimg/touching-holes6.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/touching-holes6.png)
 
 touching2:
-![](Docs/testimg/touching2.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/touching2.png)
 
 touching3:
-![](Docs/testimg/touching3.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/touching3.png)
 
 touching4:
-![](Docs/testimg/touching4.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/touching4.png)
 
 water-huge2:
-![](Docs/testimg/water-huge2.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/water-huge2.png)
 
 water:
-![](Docs/testimg/water.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/water.png)
 
 water2:
-![](Docs/testimg/water2.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/water2.png)
 
 water3:
-![](Docs/testimg/water3.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/water3.png)
 
 water3b:
-![](Docs/testimg/water3b.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/water3b.png)
 
 water4:
-![](Docs/testimg/water4.png)
+![](https://raw.githubusercontent.com/goswinr/Earcut/main/Docs/testimg/water4.png)

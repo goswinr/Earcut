@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.0.2-r3] - 2025-11-08
+### Fixed
+- Image links in README.md
 
 ## [3.0.2-r2] - 2025-11-08
 ### Added
@@ -19,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 
+[3.0.2-r3]: https://github.com/goswinr/Earcut/compare/v3.0.2-r2...v3.0.2-r3
 [3.0.2-r2]: https://github.com/goswinr/Earcut/compare/v3.0.2-r1...v3.0.2-r2
 [3.0.2-r1]: https://github.com/goswinr/Earcut/releases/tag/v3.0.2-r1
 
