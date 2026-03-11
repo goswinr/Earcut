@@ -653,15 +653,24 @@ let internal eliminateHoles(data: array<float>, holeIndices: array<int>, outerNo
     outerNode
 
 
-///<summary> Triangulates a polygon with holes.</summary>
+///<summary> Triangulates a polygon with holes, given as flat array of numbers.</summary>
 ///<param name="vertices">A array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...].</param>
-///<param name="holeIndices">An array of hole starting indices in the vertices array. Use `null` if there are no holes.</param>
+///<param name="holeIndices">An array of hole starting indices in the vertices array.
+/// This index refers to the actual point array. Not the flattened vertices array.
+/// If you have the index in the flattened vertices array, you need to divide it by the dimensions parameter to get the correct index parameter.
+///  Use `null` if there are no holes.</param>
 ///<param name="dimensions">The number of coordinates per vertex in the vertices array:
 /// 2 if the vertices array is made of x and y coordinates only.
 /// 3 if it is made of x, y and z coordinates.</param>
 /// <returns>A list of integers.
-/// They are indices into the vertices array.
-/// Every 3 integers represent the corner vertices of a triangle.</returns>
+/// They are indices into the points array.
+/// so if you use the flattened vertices array, you need to multiply the index by the dimensions parameter to get the correct index in the vertices array.
+/// e.g.:
+/// <code>
+/// x = xyz[i * dimensions]
+/// y = xyz[i * dimensions + 1]
+/// </code>
+/// (if dimensions = 2)</returns>
 let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : ResizeArray<int> =
     let triangles = ResizeArray<int>()
     if vertices.Length < dimensions * 3 then
@@ -704,6 +713,9 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
 
             triangles
 
+
+
+
 /// Utility function to verify correctness of the triangulation.
 /// Returns a percentage difference between the polygon area and its triangulation area.
 /// used to detect any significant errors in the triangulation process.
@@ -735,6 +747,11 @@ let deviation(vertices: array<float>, holeIndices: array<int>, dim: int, triangl
 
 
 /// Utility function to turn a polygon in a multi-dimensional array form (e.g. as in GeoJSON) into a form Earcut accepts
+/// Returns an object with the following properties:
+/// - vertices: a flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...].
+/// - holes: an array of hole starting indices in the vertices array. Use `null` if there are no holes.
+/// - dimensions: the number of coordinates per vertex in the vertices array. derived from the first vertex in the data array
+/// (e.g. 2 if the vertices array is made of x and y coordinates only, 3 if it is made of x, y and z coordinates).
 let flatten(data: float[][][])  =
     let vertices = ResizeArray<float>()
     let holes = ResizeArray<int>()
@@ -753,3 +770,96 @@ let flatten(data: float[][][])  =
 
     {|vertices = vertices.ToArray(); holes = holes.ToArray(); dimensions = dimensions|}
 
+
+
+open System.Collections.Generic
+
+///<summary> Triangulates a polygon with holes, given as arrays of objects wit x and y properties (lowercase).
+/// Any object with x and y properties will work as a point object. (via F# statically resolved type parameters)</summary>
+/// <param name="holes">An IList of holes, where each hole is an ResizeArray of points. Use `null` or empty array if there are no holes.</param>
+/// <param name="pts">An ResizeArray of points representing the outer polygon.</param>
+/// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
+/// Every six consecutive values represent a triangle in 2D space.</returns>
+let inline earcut_xy (holes: IList<ResizeArray<'T>>) (pts: ResizeArray<'T>) : float[] when 'T : (member x: float) and 'T : (member y: float) =
+    let holes = if holes = null then ResizeArray() :> IList<_> else holes
+    let mutable size = pts.Count * 2
+    for hole in holes do
+        size <- size + hole.Count * 2
+
+    let mutable ii = 0
+    let holesIdx = Array.zeroCreate<int> holes.Count
+    let xys = Array.zeroCreate<float> size
+    for i=0 to pts.Count - 1 do
+        let p = pts.[i]
+        xys.[ii] <- p.x
+        ii <- ii + 1
+        xys.[ii] <- p.y
+        ii <- ii + 1
+    for j = 0 to holes.Count - 1 do
+        let hole = holes.[j]
+        holesIdx.[j] <- ii / 2 // divide by 2 because xys is a flat array of coordinates
+        for k=0 to hole.Count - 1 do
+            let p = hole.[k]
+            xys.[ii] <- p.x
+            ii <- ii + 1
+            xys.[ii] <- p.y
+            ii <- ii + 1
+    let triaIdxs = earcut(xys, holesIdx, 2)
+
+    let len = triaIdxs.Count * 2
+    let trias = Array.zeroCreate<float> len
+    let mutable j = 0
+    for i=0 to triaIdxs.Count - 1 do
+        let x = triaIdxs.[i] * 2
+        trias.[j] <- xys.[x]
+        j <- j + 1
+
+        let y = x + 1
+        trias.[j] <- xys.[y]
+        j <- j + 1
+    trias
+
+///<summary> Triangulates a polygon with holes, given as arrays of objects with X and Y properties (Uppercase).
+/// Any object with X and Y properties will work as a point object. (via F# statically resolved type parameters)</summary>
+/// <param name="holes">An IList of holes, where each hole is an ResizeArray of points. Use `null` or empty array if there are no holes.</param>
+/// <param name="pts">An ResizeArray of points representing the outer polygon.</param>
+/// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
+/// Every six consecutive values represent a triangle in 2D space.</returns>
+let inline earcut_XY (holes: IList<ResizeArray<'T>>) (pts: ResizeArray<'T>) : float[] when 'T : (member X: float) and 'T : (member Y: float) =
+    let holes = if holes = null then ResizeArray() :> IList<_> else holes
+    let mutable size = pts.Count * 2
+    for hole in holes do
+        size <- size + hole.Count * 2
+
+    let mutable ii = 0
+    let holesIdx = Array.zeroCreate<int> holes.Count
+    let xys = Array.zeroCreate<float> size
+    for i=0 to pts.Count - 1 do
+        let p = pts.[i]
+        xys.[ii] <- p.X
+        ii <- ii + 1
+        xys.[ii] <- p.Y
+        ii <- ii + 1
+    for j = 0 to holes.Count - 1 do
+        let hole = holes.[j]
+        holesIdx.[j] <- ii / 2 // divide by 2 because xys is a flat array of coordinates
+        for k=0 to hole.Count - 1 do
+            let p = hole.[k]
+            xys.[ii] <- p.X
+            ii <- ii + 1
+            xys.[ii] <- p.Y
+            ii <- ii + 1
+    let triaIdxs = earcut(xys, holesIdx, 2)
+
+    let len = triaIdxs.Count * 2
+    let trias = Array.zeroCreate<float> len
+    let mutable j = 0
+    for i=0 to triaIdxs.Count - 1 do
+        let x = triaIdxs.[i] * 2
+        trias.[j] <- xys.[x]
+        j <- j + 1
+
+        let y = x + 1
+        trias.[j] <- xys.[y]
+        j <- j + 1
+    trias
