@@ -716,6 +716,73 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
 
 
 
+/// Validates the input data for the earcut function.
+/// Raises a descriptive System.ArgumentException if the input is invalid.
+/// Checks include:
+/// - dimensions is at least 2
+/// - vertices array is not null or empty
+/// - vertices array length is a multiple of dimensions
+/// - no NaN or Infinity values in the vertices array
+/// - the outer loop has at least 3 points
+/// - each hole has at least 3 points (or 1 point for Steiner points)
+/// - hole indices are within bounds and in ascending order
+/// - the total area of all holes is smaller than the area of the outer loop
+let validate(vertices: array<float>, holeIndices: array<int>, dimensions: int) : unit =
+
+    if dimensions < 2 then
+        raise (System.ArgumentException $"Earcut.validate: Dimensions must be at least 2, but got {dimensions}.")
+
+    if obj.ReferenceEquals(vertices, null) || vertices.Length = 0 then
+        raise (System.ArgumentException "Earcut.validate: Vertices array is null or empty.")
+
+    if vertices.Length % dimensions <> 0 then
+        raise (System.ArgumentException $"Earcut.validate: Vertices array length {vertices.Length} is not a multiple of dimensions {dimensions}.")
+
+    let totalPoints = vertices.Length / dimensions
+
+    for i = 0 to vertices.Length - 1 do
+        if System.Double.IsNaN(vertices.[i]) then
+            raise (System.ArgumentException $"Earcut.validate: Vertices array contains a NaN value at index {i}.")
+        if System.Double.IsInfinity(vertices.[i]) then
+            raise (System.ArgumentException $"Earcut.validate: Vertices array contains an Infinity value at index {i}.")
+
+    let hasHoles = not (obj.ReferenceEquals(holeIndices, null)) && holeIndices.Length > 0
+
+    let outerEnd = if hasHoles then holeIndices.[0] else totalPoints
+
+    if outerEnd < 3 then
+        raise (System.ArgumentException $"Earcut.validate: Outer loop must have at least 3 points, but got {outerEnd}.")
+
+    if hasHoles then
+        for i = 0 to holeIndices.Length - 1 do
+            let idx = holeIndices.[i]
+            if idx < 0 || idx > totalPoints then
+                raise (System.ArgumentException $"Earcut.validate: Hole index {i} has value {idx} which is out of bounds [0, {totalPoints}].")
+            if i > 0 && idx <= holeIndices.[i - 1] then
+                raise (System.ArgumentException $"Earcut.validate: Hole indices must be in ascending order, but index {i} ({idx}) is not greater than index {i - 1} ({holeIndices.[i - 1]}).")
+
+        if holeIndices.[holeIndices.Length - 1] >= totalPoints then
+            raise (System.ArgumentException $"Earcut.validate: Last hole index {holeIndices.[holeIndices.Length - 1]} is at or beyond the end of the vertices array ({totalPoints} points).")
+
+        for i = 0 to holeIndices.Length - 1 do
+            let holeStart = holeIndices.[i]
+            let holeEnd = if i < holeIndices.Length - 1 then holeIndices.[i + 1] else totalPoints
+            let holePointCount = holeEnd - holeStart
+            if holePointCount < 1 then
+                raise (System.ArgumentException $"Earcut.validate: Hole {i} has {holePointCount} points, but must have at least 1.")
+            if holePointCount = 2 then
+                raise (System.ArgumentException $"Earcut.validate: Hole {i} has only 2 points. A hole needs at least 3 points, or 1 point for a Steiner point.")
+
+        let outerArea = abs(signedArea(vertices, 0, outerEnd * dimensions, dimensions))
+        let mutable holeAreaSum = 0.0
+        for i = 0 to holeIndices.Length - 1 do
+            let start = holeIndices.[i] * dimensions
+            let end_ = if i < holeIndices.Length - 1 then holeIndices.[i + 1] * dimensions else vertices.Length
+            holeAreaSum <- holeAreaSum + abs(signedArea(vertices, start, end_, dimensions))
+
+        if holeAreaSum >= outerArea && outerArea > 0.0 then
+            raise (System.ArgumentException $"Earcut.validate: Total area of holes ({holeAreaSum}) is not smaller than the area of the outer loop ({outerArea}).")
+
 /// Utility function to verify correctness of the triangulation.
 /// Returns a percentage difference between the polygon area and its triangulation area.
 /// used to detect any significant errors in the triangulation process.
