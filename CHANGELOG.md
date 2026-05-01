@@ -34,8 +34,8 @@ while the last digits indicate the release number of this F# port.
 
 
 
-[3.0.22]: https://github.com/goswinr/Earcut/compare/v3.0.21...v3.0.22
-[3.0.2.1]: https://github.com/goswinr/Earcut/compare/v3.0.2-r3...v3.0.21
-[3.0.2-r3]: https://github.com/goswinr/Earcut/compare/v3.0.2-r2...v3.0.2-r3
-[3.0.2-r2]: https://github.com/goswinr/Earcut/compare/v3.0.2-r1...v3.0.2-r2
-[3.0.2-r1]: https://github.com/goswinr/Earcut/releases/tag/v3.0.2-r1
+[3.0.22]: https://github.com/goswinr/Earcut/compare/3.0.21...3.0.22
+[3.0.2.1]: https://github.com/goswinr/Earcut/compare/3.0.2-r3...3.0.21
+[3.0.2-r3]: https://github.com/goswinr/Earcut/compare/3.0.2-r2...3.0.2-r3
+[3.0.2-r2]: https://github.com/goswinr/Earcut/compare/3.0.2-r1...3.0.2-r2
+[3.0.2-r1]: https://github.com/goswinr/Earcut/releases/tag/3.0.2-r1

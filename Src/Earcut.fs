@@ -31,20 +31,20 @@ type internal Node = {
 
 let inline internal createNode(i: int, x: float, y: float) : Node =
     {
-        i = i
-        x = x
-        y = y
-        prev = Unchecked.defaultof<Node>
-        next = Unchecked.defaultof<Node>
-        z = 0
-        prevZ = Unchecked.defaultof<Node>
-        nextZ = Unchecked.defaultof<Node>
-        steiner = false
+    i = i
+    x = x
+    y = y
+    prev = Unchecked.defaultof<Node>
+    next = Unchecked.defaultof<Node>
+    z = 0
+    prevZ = Unchecked.defaultof<Node>
+    nextZ = Unchecked.defaultof<Node>
+    steiner = false
     }
 
 let inline internal (===) (a:Node) (b:Node) = obj.ReferenceEquals(a, b)
 
-let inline internal (!==) (a:Node) (b:Node) = not <| obj.ReferenceEquals(a, b)
+let inline internal (=!=) (a:Node) (b:Node) = not <| obj.ReferenceEquals(a, b)
 
 let inline internal notNull (node: Node) : bool = not <| obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
 
@@ -334,12 +334,12 @@ let rec internal filterPoints(start: Node, ende: Node) : Node =
                 ende <- p.prev
                 p <- ende
                 if p === p.next then
-                    continueLoop <-  p !== ende
+                    continueLoop <-  p =!= ende
                 else
                     continueLoop <- true
             else
                 p <- p.next
-                continueLoop <-  p !== ende
+                continueLoop <-  p =!= ende
 
         ende
 
@@ -367,7 +367,7 @@ let internal isEar(ear: Node) : bool =
 
         let mutable p = c.next
         let mutable result = true
-        while p !== a && result do
+        while p =!= a && result do
             if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 &&
                 pointInTriangleExceptFirst(ax, ay, bx, by, cx, cy, p.x, p.y) &&
                 area(p.prev, p, p.next) >= 0.0 then
@@ -405,13 +405,13 @@ let internal isEarHashed(ear: Node, minX: float, minY: float, invSize: float) : 
 
         // look for points inside the triangle in both directions
         while result && notNull p && p.z >= minZ && notNull n && n.z <= maxZ do
-            if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && p !== a && p !== c &&
+            if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && p =!= a && p =!= c &&
                 pointInTriangleExceptFirst(ax, ay, bx, by, cx, cy, p.x, p.y) && area(p.prev, p, p.next) >= 0.0 then
                 result <- false
             else
                 p <- p.prevZ
 
-            if result && notNull n && n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1 && n !== a && n !== c &&
+            if result && notNull n && n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1 && n =!= a && n =!= c &&
                 pointInTriangleExceptFirst(ax, ay, bx, by, cx, cy, n.x, n.y) && area(n.prev, n, n.next) >= 0.0 then
                 result <- false
             else if result then
@@ -419,7 +419,7 @@ let internal isEarHashed(ear: Node, minX: float, minY: float, invSize: float) : 
 
         // look for remaining points in decreasing z-order
         while result && notNull p && p.z >= minZ do
-            if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && p !== a && p !== c &&
+            if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && p =!= a && p =!= c &&
                 pointInTriangleExceptFirst(ax, ay, bx, by, cx, cy, p.x, p.y) && area(p.prev, p, p.next) >= 0.0 then
                 result <- false
             else
@@ -427,7 +427,7 @@ let internal isEarHashed(ear: Node, minX: float, minY: float, invSize: float) : 
 
         // look for remaining points in increasing z-order
         while result && notNull n && n.z <= maxZ do
-            if n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1 && n !== a && n !== c &&
+            if n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1 && n =!= a && n =!= c &&
                 pointInTriangleExceptFirst(ax, ay, bx, by, cx, cy, n.x, n.y) && area(n.prev, n, n.next) >= 0.0 then
                 result <- false
             else
@@ -458,7 +458,7 @@ let internal cureLocalIntersections(start: Node, triangles: ResizeArray<int>) : 
             p <- start
 
         p <- p.next
-        continueLoop <- p !== start
+        continueLoop <- p =!= start
 
     filterPoints(p, Unchecked.defaultof<Node>)
 
@@ -486,11 +486,11 @@ let rec internal splitEarcut(start: Node, triangles: ResizeArray<int>, dim: int,
                 innerContinue <- false
             else
                 b <- b.next
-                innerContinue <-  b !== a.prev
+                innerContinue <-  b =!= a.prev
 
         if outerContinue then
             a <- a.next
-            outerContinue <- a !== start
+            outerContinue <- a =!= start
 
 // main ear slicing loop which triangulates a polygon (given as a linked list)
 and internal earcutLinked(ear: Node, triangles: ResizeArray<int>, dim: int, minX: float, minY: float, invSize: float, pass: int) : unit =
@@ -504,7 +504,7 @@ and internal earcutLinked(ear: Node, triangles: ResizeArray<int>, dim: int, minX
         let mutable continueLoop = true
 
         // iterate through ears, slicing them one by one
-        while continueLoop && ear.prev !== ear.next do
+        while continueLoop && ear.prev =!= ear.next do
             let prev = ear.prev
             let next = ear.next
 
