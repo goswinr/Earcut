@@ -469,7 +469,7 @@ let rec internal splitEarcut(start: Node, triangles: ResizeArray<int>, dim: int,
     let mutable outerContinue = true
     while outerContinue do
         let mutable b = a.next.next
-        let mutable innerContinue = true
+        let mutable innerContinue = b =!= a.prev
         while innerContinue do
             if a.i <> b.i && isValidDiagonal(a, b) then
                 // split the polygon in two by the diagonal
@@ -568,10 +568,13 @@ let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
     // unless they intersect at a vertex, then choose the vertex
     if equals(hole, p) then p
     else
+        let mutable earlyReturn = Unchecked.defaultof<Node>
+        let mutable hasEarlyReturn = false
         let mutable continueLoop = true
         while continueLoop do
             if equals(hole, p.next) then
-                m <- p.next
+                earlyReturn <- p.next // hole touches outer vertex; connect to it directly
+                hasEarlyReturn <- true
                 continueLoop <- false
             elif hy <= p.y && hy >= p.next.y && p.next.y <> p.y then
                 let x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y)
@@ -579,7 +582,9 @@ let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
                     qx <- x
                     m <- if p.x < p.next.x then p else p.next
                     if x = hx then
-                        continueLoop <- false // hole touches outer segment; pick leftmost endpoint
+                        earlyReturn <- m // hole touches outer segment; pick leftmost endpoint
+                        hasEarlyReturn <- true
+                        continueLoop <- false
 
                 if continueLoop then
                     p <- p.next
@@ -588,7 +593,8 @@ let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
                 p <- p.next
                 if p === outerNode then continueLoop <- false
 
-        if isNull m then Unchecked.defaultof<Node>
+        if hasEarlyReturn then earlyReturn
+        elif isNull m then Unchecked.defaultof<Node>
         else
             // look for points inside the triangle of hole point, segment intersection and endpoint;
             // if there are no points found, we have a valid connection;
