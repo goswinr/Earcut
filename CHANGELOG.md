@@ -9,6 +9,13 @@ The first three digits of the version number (e.g. `3.0.2`) correspond to the or
 while the last digits indicate the release number of this F# port.
 
 ## [Unreleased]
+## [3.0.23] - 2026-06-15
+### Changed
+- rename `earcut_xy` to `earcutTrianglesFromMembersxy`
+- rename `earcut_XY` to `earcutTrianglesFromMembersXY`
+### Added
+- `earcutTriangles`
+
 
 ## [3.0.22] - 2026-03-15
 ### Added
@@ -34,8 +41,9 @@ while the last digits indicate the release number of this F# port.
 
 
 
+[3.0.23]: https://github.com/goswinr/Earcut/compare/3.0.22...3.0.23
 [3.0.22]: https://github.com/goswinr/Earcut/compare/3.0.21...3.0.22
-[3.0.2.1]: https://github.com/goswinr/Earcut/compare/3.0.2-r3...3.0.21
+[3.0.21]: https://github.com/goswinr/Earcut/compare/3.0.2-r3...3.0.21
 [3.0.2-r3]: https://github.com/goswinr/Earcut/compare/3.0.2-r2...3.0.2-r3
 [3.0.2-r2]: https://github.com/goswinr/Earcut/compare/3.0.2-r1...3.0.2-r2
 [3.0.2-r1]: https://github.com/goswinr/Earcut/releases/tag/3.0.2-r1

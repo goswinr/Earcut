@@ -639,9 +639,9 @@ let internal eliminateHoles(data: array<float>, holeIndices: array<int>, outerNo
         let start = holeIndices.[i] * dim
         let end_ = if i < holeIndices.Length - 1 then holeIndices.[i + 1] * dim else data.Length
         let list = linkedList(data, start, end_, dim, false)
-        if list === list.next then list.steiner <- true
+        if list === list.next then
+            list.steiner <- true
         queue.Add(getLeftmost(list))
-
 
     queue.Sort compareXYSlope
 
@@ -680,13 +680,15 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
         let outerLen = if hasHoles then holeIndices.[0] * dimensions else vertices.Length
         let mutable outerNode = linkedList(vertices, 0, outerLen, dimensions, true)
 
-        if isNull outerNode || outerNode.next === outerNode.prev then triangles
+        if isNull outerNode || outerNode.next === outerNode.prev then
+            triangles
         else
             let mutable minX = 0.0
             let mutable minY = 0.0
             let mutable invSize = 0.0
 
-            if hasHoles then outerNode <- eliminateHoles(vertices, holeIndices, outerNode, dimensions)
+            if hasHoles then
+                outerNode <- eliminateHoles(vertices, holeIndices, outerNode, dimensions)
 
             // if the shape is not too simple, we'll use z-order curve hash later; calculate polygon bbox
             if vertices.Length > 80 * dimensions then
@@ -841,13 +843,54 @@ let flatten(data: float[][][])  =
 
 open System.Collections.Generic
 
+
+///<summary> Triangulates a polygon with holes, given as ResizeArray flat X and Y coordinates.
+/// Any object with x and y properties will work as a point object. (via F# statically resolved type parameters)</summary>
+/// <param name="holes">An IList of holes, where each hole is an ResizeArray of x and y . Use `null` or empty array if there are no holes.</param>
+/// <param name="boundary">An ResizeArray of x and y coordinates representing the outer polygon.</param>
+/// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
+/// Every six consecutive values represent a triangle in 2D space.</returns>
+let inline earcutTriangles(holes: IList<ResizeArray<float>>) (boundary: ResizeArray<float>) : float[] =
+    let holes = if holes = null then ResizeArray() :> IList<_> else holes
+    let mutable size = boundary.Count
+    for hole in holes do
+        size <- size + hole.Count
+
+    let mutable ii = boundary.Count
+    let holesIdx = Array.zeroCreate<int> holes.Count
+    let xys = Array.zeroCreate<float> size
+    for i=0 to boundary.Count - 1 do
+        xys.[ii] <- boundary.[i]
+
+    for j = 0 to holes.Count - 1 do
+        let hole = holes.[j]
+        holesIdx.[j] <- ii
+        for k=0 to hole.Count - 1 do
+            xys.[ii] <- hole.[k]
+        ii <- ii + hole.Count
+
+    let triaIdxs = earcut(xys, holesIdx, 2)
+
+    let len = triaIdxs.Count * 2
+    let trias = Array.zeroCreate<float> len
+    let mutable j = 0
+    for i=0 to triaIdxs.Count - 1 do
+        let xIdx = triaIdxs.[i] * 2
+        trias.[j] <- xys.[xIdx]
+        j <- j + 1
+
+        let yIdx = xIdx + 1
+        trias.[j] <- xys.[yIdx]
+        j <- j + 1
+    trias
+
 ///<summary> Triangulates a polygon with holes, given as arrays of objects wit x and y properties (lowercase).
 /// Any object with x and y properties will work as a point object. (via F# statically resolved type parameters)</summary>
 /// <param name="holes">An IList of holes, where each hole is an ResizeArray of points. Use `null` or empty array if there are no holes.</param>
 /// <param name="pts">An ResizeArray of points representing the outer polygon.</param>
 /// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
 /// Every six consecutive values represent a triangle in 2D space.</returns>
-let inline earcut_xy (holes: IList<ResizeArray<'T>>) (pts: ResizeArray<'T>) : float[] when 'T : (member x: float) and 'T : (member y: float) =
+let inline earcutTrianglesFromMembersxy (holes: IList<ResizeArray<'T>>) (pts: ResizeArray<'T>) : float[] when 'T : (member x: float) and 'T : (member y: float) =
     let holes = if holes = null then ResizeArray() :> IList<_> else holes
     let mutable size = pts.Count * 2
     for hole in holes do
@@ -892,7 +935,7 @@ let inline earcut_xy (holes: IList<ResizeArray<'T>>) (pts: ResizeArray<'T>) : fl
 /// <param name="pts">An ResizeArray of points representing the outer polygon.</param>
 /// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
 /// Every six consecutive values represent a triangle in 2D space.</returns>
-let inline earcut_XY (holes: IList<ResizeArray<'T>>) (pts: ResizeArray<'T>) : float[] when 'T : (member X: float) and 'T : (member Y: float) =
+let inline earcutTrianglesFromMembersXY (holes: IList<ResizeArray<'T>>) (pts: ResizeArray<'T>) : float[] when 'T : (member X: float) and 'T : (member Y: float) =
     let holes = if holes = null then ResizeArray() :> IList<_> else holes
     let mutable size = pts.Count * 2
     for hole in holes do

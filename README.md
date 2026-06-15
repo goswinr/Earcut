@@ -85,10 +85,10 @@ x = vertices[i * dimensions]
 y = vertices[i * dimensions + 1]
 ```
 
-## Convenience F# API: `earcut_xy` and `earcut_XY`
+## Convenience F# API: `earcutTrianglesFromMembersxy` and `earcutTrianglesFromMembersXY`
 
 If your points are objects with `x`/`y` (or `X`/`Y`) properties, you can use the convenience functions
-`earcut_xy` and `earcut_XY` instead of manually flattening coordinates.
+`earcutTrianglesFromMembersxy` and `earcutTrianglesFromMembersXY` instead of manually flattening coordinates.
 They accept a `ResizeArray` of points and an optional list of holes (also as `ResizeArray`s of points),
 and return a flat `float[]` of triangle vertex coordinates `[x0, y0, x1, y1, x2, y2, ...]`.
 Every six consecutive values represent a triangle.
@@ -105,11 +105,11 @@ let hole2: Polyline2D = ...
 
 
 // For points with uppercase .X and .Y members:
-let triangles = outerPoly.Points |> Earcut.earcut_XY [||]
+let triangles = outerPoly.Points |> Earcut.earcutTrianglesFromMembersXY null
 
 // With holes:
 let holes = [|hole1.Points; hole2.Points|]
-let triangles = outerPoly.Points |> Earcut.earcut_XY holes
+let triangles = outerPoly.Points |> Earcut.earcutTrianglesFromMembersXY holes
 ```
 
 ## Examples
