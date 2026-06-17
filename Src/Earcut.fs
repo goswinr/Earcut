@@ -850,35 +850,51 @@ let flatten(data: float[][][])  =
 open System.Collections.Generic
 
 
+let inline arrayZeroCreateInt (len:int) : int [] =
+    #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+        Fable.Core.JsInterop.emitJsExpr (len) "new Int32Array($0)"
+    #else
+        Array.zeroCreate<int> len
+    #endif
+
+let inline arrayZeroCreateFloat (len:int) : float [] =
+    #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+        Fable.Core.JsInterop.emitJsExpr (len) "new Float64Array($0)"
+    #else
+        Array.zeroCreate<float> len
+    #endif
+
+
 ///<summary> Triangulates a polygon with holes, given as ResizeArray flat X and Y coordinates.
 /// Any object with x and y properties will work as a point object. (via F# statically resolved type parameters)</summary>
 /// <param name="holes">An IList of holes, where each hole is an ResizeArray of x and y . Use `null` or empty array if there are no holes.</param>
 /// <param name="boundary">An ResizeArray of x and y coordinates representing the outer polygon.</param>
 /// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
 /// Every six consecutive values represent a triangle in 2D space.</returns>
-let inline earcutTriangles(holes: IList<ResizeArray<float>>) (boundary: ResizeArray<float>) : float[] =
+let earcutTriangles(holes: IList<ResizeArray<float>>) (boundary: ResizeArray<float>) : float[] =
     let holes = if holes = null then ResizeArray() :> IList<_> else holes
     let mutable size = boundary.Count
-    for hole in holes do
+    for k = 0 to holes.Count - 1 do
+        let hole = holes.[k]
         size <- size + hole.Count
 
     let mutable ii = boundary.Count
-    let holesIdx = Array.zeroCreate<int> holes.Count
-    let xys = Array.zeroCreate<float> size
+    let holesIdx = arrayZeroCreateInt holes.Count
+    let xys = arrayZeroCreateFloat size
     for i=0 to boundary.Count - 1 do
-        xys.[ii] <- boundary.[i]
+        xys.[i] <- boundary.[i]
 
     for j = 0 to holes.Count - 1 do
         let hole = holes.[j]
-        holesIdx.[j] <- ii
+        holesIdx.[j] <- ii/2 // divide by 2 because xys is a flat array of coordinates
         for k=0 to hole.Count - 1 do
-            xys.[ii] <- hole.[k]
+            xys.[ii+k] <- hole.[k]
         ii <- ii + hole.Count
 
     let triaIdxs = earcut(xys, holesIdx, 2)
 
     let len = triaIdxs.Count * 2
-    let trias = Array.zeroCreate<float> len
+    let trias = arrayZeroCreateFloat len
     let mutable j = 0
     for i=0 to triaIdxs.Count - 1 do
         let xIdx = triaIdxs.[i] * 2
@@ -903,8 +919,8 @@ let inline earcutTrianglesFromMembersxy (holes: IList<ResizeArray<'T>>) (pts: Re
         size <- size + hole.Count * 2
 
     let mutable ii = 0
-    let holesIdx = Array.zeroCreate<int> holes.Count
-    let xys = Array.zeroCreate<float> size
+    let holesIdx = arrayZeroCreateInt holes.Count
+    let xys = arrayZeroCreateFloat size
     for i=0 to pts.Count - 1 do
         let p = pts.[i]
         xys.[ii] <- p.x
@@ -923,7 +939,7 @@ let inline earcutTrianglesFromMembersxy (holes: IList<ResizeArray<'T>>) (pts: Re
     let triaIdxs = earcut(xys, holesIdx, 2)
 
     let len = triaIdxs.Count * 2
-    let trias = Array.zeroCreate<float> len
+    let trias = arrayZeroCreateFloat len
     let mutable j = 0
     for i=0 to triaIdxs.Count - 1 do
         let x = triaIdxs.[i] * 2
@@ -948,8 +964,8 @@ let inline earcutTrianglesFromMembersXY (holes: IList<ResizeArray<'T>>) (pts: Re
         size <- size + hole.Count * 2
 
     let mutable ii = 0
-    let holesIdx = Array.zeroCreate<int> holes.Count
-    let xys = Array.zeroCreate<float> size
+    let holesIdx = arrayZeroCreateInt holes.Count
+    let xys = arrayZeroCreateFloat size
     for i=0 to pts.Count - 1 do
         let p = pts.[i]
         xys.[ii] <- p.X
@@ -968,7 +984,7 @@ let inline earcutTrianglesFromMembersXY (holes: IList<ResizeArray<'T>>) (pts: Re
     let triaIdxs = earcut(xys, holesIdx, 2)
 
     let len = triaIdxs.Count * 2
-    let trias = Array.zeroCreate<float> len
+    let trias = arrayZeroCreateFloat len
     let mutable j = 0
     for i=0 to triaIdxs.Count - 1 do
         let x = triaIdxs.[i] * 2

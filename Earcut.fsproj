@@ -53,6 +53,7 @@
     <PackageReference Update="FSharp.Core" Version="6.0.7" />
     <PackageReference Include="Microsoft.SourceLink.GitHub" Version="10.0.200" PrivateAssets="all" IncludeAssets="runtime; build; native; contentfiles; analyzers" />
     <PackageReference Include="Ionide.KeepAChangelog.Tasks" Version="0.3.3" PrivateAssets="all" />
+    <PackageReference Include="Fable.Core" Version="5.0.0" Condition="$(DefineConstants.Contains('FABLE_COMPILER'))" />
 
     <None Include="./README.md" Pack="true" PackagePath="" />
     <None Include="./Docs/img/logo128.png" Pack="true" PackagePath="" />  <!--PackagePath = "" makes the file available to nuget pack tool-->

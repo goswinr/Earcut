@@ -9,6 +9,12 @@ The first three digits of the version number (e.g. `3.0.2`) correspond to the or
 while the last digits indicate the release number of this F# port.
 
 ## [Unreleased]
+
+## [3.0.24] - 2026-06-17
+### Fixed
+- Fix bad index in `earcutTriangles`
+
+
 ## [3.0.23] - 2026-06-15
 ### Changed
 - rename `earcut_xy` to `earcutTrianglesFromMembersxy`
