@@ -20,6 +20,21 @@ jobs:
       with:
         dotnet-version: '10.x'
 
+
+    - name: Restore .NET tools (Fable)
+      run: dotnet tool restore
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v6
+      with:
+        node-version: '26.x'
+
+    - name: Build fable
+      run: dotnet fable --noCache
+
+    - name: Run tests JS
+      run: node Test/test.js
+
     - name: Replace <br> in README.md with two spaces for nuget.org
       run: |
         $content = Get-Content -Path README.md -Raw
