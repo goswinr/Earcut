@@ -3,8 +3,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 
-// import earcut, {flatten, deviation} from '../src/earcut.js'; // original JS version
-import {earcut, flatten, deviation} from '../Src/Earcut.fs.js'; // F# to JS version
+// import earcut, {flatten, deviation, refine} from '../src/earcut.js'; // original JS version
+import {earcut, flatten, deviation, refine} from '../Src/Earcut.fs.js'; // F# to JS version
+import {readTilesFixture} from './bench/tiles-fixture.js';
 
 const expected = JSON.parse(fs.readFileSync(new URL('expected.json', import.meta.url)));
 
@@ -22,10 +23,87 @@ test('empty', () => {
     assert.deepEqual(earcut([], null, 2), []);
 });
 
+// tracks the worst deviation across the three non-zero rotations per fixture,
+// so we can tell when the errors-with-rotation bound can be tightened
+const maxRotated = new Map();
+
+function trianglePerimeter(triangles, vertices, dim = 2) {
+    let perimeter = 0;
+    for (let i = 0; i < triangles.length; i += 3) {
+        const ax = vertices[triangles[i] * dim],
+            ay = vertices[triangles[i] * dim + 1],
+            bx = vertices[triangles[i + 1] * dim],
+            by = vertices[triangles[i + 1] * dim + 1],
+            cx = vertices[triangles[i + 2] * dim],
+            cy = vertices[triangles[i + 2] * dim + 1];
+
+        perimeter += Math.hypot(ax - bx, ay - by) +
+            Math.hypot(bx - cx, by - cy) +
+            Math.hypot(cx - ax, cy - ay);
+    }
+    return perimeter;
+}
+
+function countIllegalEdges(triangles, vertices, dim = 2) {
+    const halfEdges = new Int32Array(triangles.length);
+    halfEdges.fill(-1);
+    const edges = new Map();
+
+    for (let e = 0; e < triangles.length; e++) {
+        const a = triangles[e];
+        const b = triangles[nextHalfEdge(e)];
+        const key = a < b ? `${a},${b}` : `${b},${a}`;
+        const twin = edges.get(key);
+        if (twin !== undefined) {
+            halfEdges[e] = twin;
+            halfEdges[twin] = e;
+            edges.delete(key);
+        } else {
+            edges.set(key, e);
+        }
+    }
+
+    let illegal = 0;
+    for (let a = 0; a < triangles.length; a++) {
+        const b = halfEdges[a];
+        if (b === -1 || a > b) continue;
+
+        const a0 = a - a % 3;
+        const b0 = b - b % 3;
+        const ar = a0 + (a + 2) % 3;
+        const al = a0 + (a + 1) % 3;
+        const bl = b0 + (b + 2) % 3;
+        const p0 = triangles[ar], pr = triangles[a], pl = triangles[al], p1 = triangles[bl];
+
+        const x0 = vertices[p0 * dim], y0 = vertices[p0 * dim + 1];
+        const xr = vertices[pr * dim], yr = vertices[pr * dim + 1];
+        const xl = vertices[pl * dim], yl = vertices[pl * dim + 1];
+        const x1 = vertices[p1 * dim], y1 = vertices[p1 * dim + 1];
+        const convex = orient(x0, y0, xr, yr, x1, y1) > 0 && orient(x0, y0, x1, y1, xl, yl) > 0;
+
+        if (convex && !inCircle(x0, y0, xr, yr, xl, yl, x1, y1)) illegal++;
+    }
+    return illegal;
+}
+
+function nextHalfEdge(e) {
+    return e - e % 3 + (e + 1) % 3;
+}
+
+function orient(ax, ay, bx, by, cx, cy) {
+    return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+}
+
+function inCircle(ax, ay, bx, by, cx, cy, px, py) {
+    const dx = ax - px, dy = ay - py, ex = bx - px, ey = by - py, fx = cx - px, fy = cy - py;
+    const ap = dx * dx + dy * dy, bp = ex * ex + ey * ey, cp = fx * fx + fy * fy;
+    return dx * (ey * cp - bp * fy) - dy * (ex * cp - bp * fx) + ap * (ex * fy - ey * fx) <= 0;
+}
+
 for (const id of Object.keys(expected.triangles)) {
 
     for (const rotation of [0, 90, 180, 270]) {
-        test(`${id} rotation ${rotation}`, () => {
+        test(`${id} rotation ${rotation}`, (t) => {
             const coords = JSON.parse(fs.readFileSync(new URL(`fixtures/${id}.json`, import.meta.url)));
             const theta = rotation * Math.PI / 180;
             const xx = Math.round(Math.cos(theta));
@@ -55,11 +133,183 @@ for (const id of Object.keys(expected.triangles)) {
             if (expectedTriangles > 0) {
                 assert.ok(err <= expectedDeviation, `deviation ${err} <= ${expectedDeviation}`);
             }
+
+            // surface fixtures whose deviation is well below the recorded threshold (at least 3x),
+            // so improvements after a correctness fix are visible and the threshold can be tightened;
+            // for rotations, compare the worst of the three against the shared errors-with-rotation bound
+            if (rotation === 0) {
+                if (expectedDeviation > 0 && err * 3 < expectedDeviation) {
+                    t.diagnostic(`${id}: deviation ${err} < recorded ${expectedDeviation} (improved)`);
+                }
+            } else {
+                maxRotated.set(id, Math.max(maxRotated.get(id) || 0, err));
+                if (rotation === 270 && expectedDeviation > 0 && maxRotated.get(id) * 3 < expectedDeviation) {
+                    t.diagnostic(`${id} rotated: max deviation ${maxRotated.get(id)} < recorded ${expectedDeviation} (improved)`);
+                }
+            }
         });
     }
 }
 
 test('infinite-loop', () => {
     earcut([1, 2, 2, 2, 1, 2, 1, 1, 1, 2, 4, 1, 5, 1, 3, 2, 4, 2, 4, 1], [5], 2);
+});
+
+test('refine improves a bad quad diagonal', () => {
+    const vertices = [0, 0, 3, 0, 10, 1, 0, 2];
+    const triangles = [2, 3, 0, 2, 0, 1];
+    const beforePerimeter = trianglePerimeter(triangles, vertices);
+    refine(triangles, vertices, 2);
+    const afterPerimeter = trianglePerimeter(triangles, vertices);
+
+    assert.deepEqual(triangles, [2, 3, 1, 3, 0, 1]);
+    assert.ok(afterPerimeter < beforePerimeter * 0.7);
+    assert.equal(deviation(vertices, null, 2, triangles), 0);
+});
+
+test('refine leaves a good quad diagonal alone', () => {
+    const vertices = [0, 0, 5, 0, 4, 1, 0, 4];
+    const triangles = [2, 3, 0, 2, 0, 1];
+
+    refine(triangles, vertices, 2);
+
+    assert.deepEqual(triangles, [2, 3, 0, 2, 0, 1]);
+    assert.equal(deviation(vertices, null, 2, triangles), 0);
+});
+
+test('refine preserves a concave polygon', () => {
+    const vertices = [0, 0, 4, 0, 4, 1, 1, 1, 1, 4, 0, 4];
+    const triangles = earcut(vertices, null, 2);
+    const length = triangles.length;
+    const beforePerimeter = trianglePerimeter(triangles, vertices);
+    refine(triangles, vertices, 2);
+    const afterPerimeter = trianglePerimeter(triangles, vertices);
+
+    assert.equal(triangles.length, length);
+    assert.ok(afterPerimeter < beforePerimeter * 0.9);
+    assert.equal(deviation(vertices, null, 2, triangles), 0);
+});
+
+test('refine terminates on near-cocircular points', {timeout: 5000}, () => {
+    // Four near-cocircular points make the non-robust inCircle test give inconsistent signs for an
+    // edge and its flip; without the tie margin the Lawson cascade flips one edge back and forth
+    // forever. Should return with a valid mesh of unchanged size and zero deviation.
+    const vertices = [
+        127.65906365022843, 9.336137742499535, 124.21725103117963, 30.888097161477972,
+        91.35514946628345, 89.65621376119454, 40.10446780041529, 121.5550560957686,
+        -110.83205604043928, 64.03323632184248, -127.20394987965459, -14.253249980770189,
+        61.074962259031416, -112.48932831632469, 127.37846573978545, -12.598669206638515,
+        127.77010311801033, -7.668164657400608];
+    const triangles = earcut(vertices, null, 2);
+    const length = triangles.length;
+    refine(triangles, vertices, 2);
+    assert.equal(triangles.length, length);
+    assert.ok(deviation(vertices, null, 2, triangles) < 1e-15);
+});
+
+test('refine legalizes all convex interior edges in earcut fixture', () => {
+    const coords = JSON.parse(fs.readFileSync(new URL('fixtures/earcut.json', import.meta.url)));
+    const data = flatten(coords);
+    const triangles = earcut(data.vertices, data.holes, data.dimensions);
+
+    refine(triangles, data.vertices, data.dimensions);
+
+    assert.equal(countIllegalEdges(triangles, data.vertices, data.dimensions), 0);
+    assert.equal(deviation(data.vertices, data.holes, data.dimensions, triangles), 0);
+});
+
+test('mvt fixture has zero deviation and refined quality', () => {
+    const polys = readTilesFixture();
+    let nonzero = 0;
+    let firstIndex = -1;
+    let firstDev = 0;
+    let worstIndex = -1;
+    let worstDev = 0;
+    let sumDev = 0;
+    let refinedNonzero = 0;
+    let refinedFirstIndex = -1;
+    let refinedFirstDev = 0;
+    let refinedWorstIndex = -1;
+    let refinedWorstDev = 0;
+    let refinedSumDev = 0;
+    let lengthChanged = 0;
+    let basePerimeter = 0;
+    let refinedPerimeter = 0;
+
+    for (let i = 0; i < polys.length; i++) {
+        const data = polys[i];
+        const triangles = earcut(data.vertices, data.holes, data.dimensions);
+        const length = triangles.length;
+        basePerimeter += trianglePerimeter(triangles, data.vertices, data.dimensions);
+        const dev = deviation(data.vertices, data.holes, data.dimensions, triangles);
+        if (dev !== 0) {
+            if (firstIndex < 0) {
+                firstIndex = i;
+                firstDev = dev;
+            }
+            nonzero++;
+            sumDev += dev;
+            if (dev > worstDev) {
+                worstIndex = i;
+                worstDev = dev;
+            }
+        }
+
+        refine(triangles, data.vertices, data.dimensions);
+        refinedPerimeter += trianglePerimeter(triangles, data.vertices, data.dimensions);
+        if (triangles.length !== length) lengthChanged++;
+
+        const refinedDev = deviation(data.vertices, data.holes, data.dimensions, triangles);
+        if (refinedDev !== 0) {
+            if (refinedFirstIndex < 0) {
+                refinedFirstIndex = i;
+                refinedFirstDev = refinedDev;
+            }
+            refinedNonzero++;
+            refinedSumDev += refinedDev;
+            if (refinedDev > refinedWorstDev) {
+                refinedWorstIndex = i;
+                refinedWorstDev = refinedDev;
+            }
+        }
+    }
+
+    assert.equal(polys.length, 119680);
+    assert.equal(nonzero, 0,
+        `${nonzero} polygons with nonzero deviation; first ${firstIndex}: ${firstDev}, ` +
+        `worst ${worstIndex}: ${worstDev}, sum ${sumDev}`);
+
+    assert.equal(lengthChanged, 0, `${lengthChanged} refined triangulations changed triangle count`);
+    assert.equal(refinedNonzero, 0,
+        `${refinedNonzero} refined polygons with nonzero deviation; first ${refinedFirstIndex}: ${refinedFirstDev}, ` +
+        `worst ${refinedWorstIndex}: ${refinedWorstDev}, sum ${refinedSumDev}`);
+
+    assert.ok(refinedPerimeter < basePerimeter * 0.72, `refined perimeter ratio ${refinedPerimeter / basePerimeter} < 0.72`);
+});
+
+// Regression for the hole-bridge block index (issue #183): a collinear-rich outer ring
+// (integer grid, like MVT data) plus multiple holes used to drop a hole when filterPoints
+// healed a collinear run across a block boundary, leaving the surviving edge outside its
+// block's stale bbox so the leftward-ray scan false-skipped it. Assert full coverage.
+test('block-index-collinear', () => {
+    const N = 30;
+    const outer = [];
+    for (let x = 0; x <= N; x++) outer.push([x, 0]);
+    for (let y = 1; y <= N; y++) outer.push([N, y]);
+    for (let x = N - 1; x >= 0; x--) outer.push([x, N]);
+    for (let y = N - 1; y >= 1; y--) outer.push([0, y]);
+    const rect = (x0, y0, w, h) => [[x0, y0], [x0, y0 + h], [x0 + w, y0 + h], [x0 + w, y0]];
+    const rings = [outer, rect(5, 5, 2, 4), rect(2, 23, 1, 1)];
+
+    for (const rotation of [0, 90, 180, 270]) {
+        const theta = rotation * Math.PI / 180;
+        const xx = Math.round(Math.cos(theta)), xy = Math.round(-Math.sin(theta));
+        const yx = Math.round(Math.sin(theta)), yy = Math.round(Math.cos(theta));
+        const rotated = rings.map(ring => ring.map(([x, y]) => [xx * x + xy * y, yx * x + yy * y]));
+        const data = flatten(rotated);
+        const indices = earcut(data.vertices, data.holes, data.dimensions);
+        const err = deviation(data.vertices, data.holes, data.dimensions, indices);
+        assert.ok(err < 1e-9, `rotation ${rotation}: deviation ${err} (hole dropped?)`);
+    }
 });
 

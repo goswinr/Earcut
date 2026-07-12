@@ -1,6 +1,3 @@
 {
-  "type": "module",
-  "dependencies": {
-    "benchmark": "^2.1.4"
-  }
+  "type": "module"
 }

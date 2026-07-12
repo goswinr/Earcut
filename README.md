@@ -21,9 +21,11 @@ https://github.com/mapbox/earcut
 
 Stable for .NET 4.7 and .NET 6.0 and JS via Fable.
 
-v3.0.2 ported to F# on 2025-11-8
+v3.2.3 ported to F# on 2026-07-14
 
-[All tests](https://github.com/mapbox/earcut/blob/main/test/test.js) of the original JS version pass.
+[All tests](https://github.com/mapbox/earcut/blob/main/test/test.js) of the original JS version pass,
+including the MVT regression suite over 119,680 real-world polygons.
+The port produces element-for-element identical output to the reference JS implementation.
 
 All relevant code is in  [Earcut.fs](https://github.com/goswinr/Euclid.Earcut/blob/main/Src/Earcut.fs). <br>
 It contains the ported code without any major changes to the original logic. <br>
@@ -33,11 +35,17 @@ It has no dependencies.
 
 The F# port has about the same performance as the original JS version when compiled back to JS with Fable.
 
+Earcut is heavily optimized for its primary workload — triangulating polygons from
+[Mapbox Vector Tiles](https://github.com/mapbox/vector-tile-spec).
+You can run the MVT benchmark (119,680 real-world polygons, 1.9M vertices) yourself with
+`node Test/bench/bench-tiles.js` (after `dotnet fable`), and the refinement benchmark with
+`node Test/bench/bench-refine.js`.
+
 
 ## The algorithm
 
 The library implements a modified ear slicing algorithm, <br>
-optimized by [z-order curve](http://en.wikipedia.org/wiki/Z-order_curve) hashing <br>
+optimized by [z-order curve](http://en.wikipedia.org/wiki/Z-order_curve) and spatial hashing <br>
 and extended to handle holes, twisted polygons, degeneracies and self-intersections <br>
 in a way that doesn't _guarantee_ correctness of triangulation, <br>
 but attempts to always produce acceptable results for practical data. <br>
@@ -51,15 +59,31 @@ and [Triangulation by Ear Clipping](http://www.geometrictools.com/Documentation/
 The aim of the original mapbox Earcut project is to create a triangulation library <br>
 that is **fast enough for real-time triangulation in the browser**, <br>
 sacrificing triangulation quality for raw speed and simplicity, <br>
-while being robust enough to handle most practical datasets without crashing or producing garbage.
+while being robust enough to handle most practical datasets without crashing or producing garbage, <br>
+with an option to `refine` the result to [Delaunay](https://en.wikipedia.org/wiki/Delaunay_triangulation) quality at a small cost.
 
 If you want to get correct triangulation even on very bad data with lots of self-intersections <br>
 and earcut is not precise enough, take a look at [libtess.js](https://github.com/brendankenny/libtess.js).
 
+## Robustness
+
+Earcut does **not** guarantee a correct triangulation on arbitrary input — it trades quality
+for speed, aiming to always produce an acceptable result on practical data without crashing or
+emitting garbage. The input is assumed to be a valid polygon: rings that don't self-cross or
+overlap, holes that stay inside the outer ring, and no duplicate or zero-length edges. On input
+that breaks these assumptions, the result can be noticeably wrong — overlapping triangles, gaps,
+or triangles outside the polygon. If correctness matters, clean your input first (see also the
+`validate` function below); for a guaranteed-correct triangulation even on bad data, see
+[libtess.js](https://github.com/brendankenny/libtess.js) (slower and larger).
+
+The output is also not _conforming_ — a vertex may land in the middle of another triangle's edge
+(a T-junction). This is harmless for rendering but can break navmesh or FEM use; if you need a
+conforming mesh, remove T-junctions in a post-process.
+
 ## Usage
 
 ```fsharp
-let triangles = Earcut.earcut([| 10.;0.; 0.;50.; 60.;60.; 70.;10.|], [||], 2) // returns [1;0;3; 3;2;1]
+let triangles = Earcut.earcut([| 10.;0.; 0.;50.; 60.;60.; 70.;10.|], [||], 2) // returns [1;0;3; 1;3;2]
 ```
 
 **Parameters:**
@@ -84,6 +108,10 @@ To look up coordinates in the flattened vertices array, multiply the index by `d
 x = vertices[i * dimensions]
 y = vertices[i * dimensions + 1]
 ```
+
+Output triangles always have a consistent **winding order** regardless of the input polygon's winding
+— counter-clockwise in a y-up coordinate system (clockwise in y-down/screen space). <br>
+If you need the opposite orientation (e.g. for back-face culling or normals in 3D), reverse the result.
 
 ## Convenience F# API: `earcutTrianglesFromMembersxy` and `earcutTrianglesFromMembersXY`
 
@@ -120,9 +148,9 @@ let triangles = outerPoly.Points |> Earcut.earcutTrianglesFromMembersXY holes
 // A quadrilateral with 4 vertices, 2D coordinates
 let vertices = [| 10.; 0.;  0.; 50.;  60.; 60.;  70.; 10. |]
 let triangles = Earcut.earcut(vertices, [||], 2)
-// returns [1; 0; 3;  3; 2; 1]
+// returns [1; 0; 3;  1; 3; 2]
 // Triangle 1: points 1, 0, 3
-// Triangle 2: points 3, 2, 1
+// Triangle 2: points 1, 3, 2
 
 // Retrieve triangle vertex coordinates:
 for t in 0 .. 3 .. triangles.Count - 1 do
@@ -144,7 +172,7 @@ let vertices = [|
     20.;20.;  80.;20.;  80.;80.;  20.;80.           // hole
 |]
 let triangles = Earcut.earcut(vertices, [|4|], 2)    // hole starts at point index 4
-// returns [0;4;7; 5;4;0; 3;0;7; 5;0;1; 2;3;7; 6;5;1; 2;7;6; 6;1;2]
+// returns [0;4;7; 5;4;0; 5;0;1; 5;1;2; 3;0;7; 3;7;6; 6;5;2; 6;2;3]
 ```
 
 ### 3D coordinates
@@ -153,7 +181,7 @@ let triangles = Earcut.earcut(vertices, [|4|], 2)    // hole starts at point ind
 // 4 vertices with x, y, z (z is ignored for triangulation)
 let vertices = [| 10.;0.;1.;  0.;50.;2.;  60.;60.;3.;  70.;10.;4. |]
 let triangles = Earcut.earcut(vertices, null, 3)
-// returns [1; 0; 3;  3; 2; 1]
+// returns [1; 0; 3;  1; 3; 2]
 
 // Retrieve coordinates using dimensions = 3:
 let i = triangles.[0]  // e.g. 1
@@ -187,6 +215,25 @@ let triangles = Earcut.earcut(data.vertices, data.holes, data.dimensions)
 
 
 
+## Delaunay refinement with `refine`
+
+If triangle quality matters, you can run an optional refinement pass after triangulation:
+
+```fsharp
+let triangles = Earcut.earcut(vertices, holes, dimensions)
+Earcut.refine(triangles, vertices, dimensions)
+```
+
+This mutates `triangles` in place, legalizing interior edges with
+[Delaunay](https://en.wikipedia.org/wiki/Delaunay_triangulation) flips while preserving
+the polygon boundary and holes. It keeps the same number of triangles and the same index format,
+but usually removes many skinny triangles and reduces total triangle edge length.
+
+Refinement is a post-process, so it doesn't affect the speed of normal `earcut` calls unless you
+explicitly call it. It assumes a valid manifold triangulation, such as the output of `earcut`, and
+doesn't repair invalid polygon input or make the mesh conforming.
+
+
 ## Verification of triangulation correctness
 
 After getting a triangulation, you can verify its correctness with `Earcut.deviation`:
@@ -197,6 +244,23 @@ let deviation = Earcut.deviation(vertices, holes, dimensions, triangles)
 
 Returns the relative difference between the total area of triangles and the area of the input polygon. <br>
 `0` means the triangulation is fully correct.
+
+## Input validation with `validate`
+
+The original JS library does not validate its input. This F# port adds an optional `validate` function
+that raises a descriptive `System.ArgumentException` if the input is malformed
+(NaN/Infinity values, wrong array length, bad hole ordering, holes larger than the outer ring, etc.):
+
+```fsharp
+Earcut.validate(vertices, holes, dimensions)
+```
+
+## Thread safety
+
+Since v3.2.3, and mirroring the upstream JS implementation, this library keeps reusable scratch
+state at module level (for the hole-bridge spatial index, the z-order sort and `refine` buffers). <br>
+Calls into the `Earcut` module are therefore **not thread-safe** — do not triangulate
+concurrently from multiple threads.
 
 
 ## Build for .NET 4.7 and 6.0
