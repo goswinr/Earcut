@@ -28,7 +28,7 @@ function earcutAll() { let s = 0; for (const d of polys) s += earcut(d.vertices,
 function refineAll() { let s = 0; for (let i = 0; i < work.length; i++) { refine(work[i], polys[i].vertices, polys[i].dimensions); s += work[i].length; } return s; }
 
 // median wall time over 5 runs, matching bench-tiles' timeSet. `prep` (if given) runs untimed
-// before each timed run — refine needs it to restore fresh earcut output into `work`, so the
+// before each timed run - refine needs it to restore fresh earcut output into `work`, so the
 // reported number is pure refine, no copy-cost pollution.
 function timeSet(fn, prep) {
     const t = [];

@@ -23,7 +23,7 @@
  */
 
 // single-vertex holes to preserve through filterPoints (steiner points); kept off the Node
-// shape since they're rare — the empty-set fast path means non-steiner inputs pay nothing
+// shape since they're rare - the empty-set fast path means non-steiner inputs pay nothing
 /** @type {Set<Node>} */
 const steiners = new Set();
 
@@ -106,7 +106,7 @@ function linkedList(data, start, end, dim, clockwise) {
 // neighbors, so we sweep forward and re-check the predecessor after each removal. With no `end`
 // we sweep the whole ring, lapping until nothing is removable (the fixpoint the clipper needs).
 // With an explicit `end` we heal only the dirty window around a bridge/diagonal cut, stopping at
-// `end` rather than lapping — O(window) instead of O(ring).
+// `end` rather than lapping - O(window) instead of O(ring).
 /** @param {Node} start @param {Node} [end] @returns {Node} */
 function filterPoints(start, end = start) {
     const full = end === start;
@@ -157,7 +157,7 @@ function earcutLinked(ear, triangles, minX, minY, invSize) {
 
         // if we looped through the whole remaining polygon and can't find any more ears
         if (ear === stop) {
-            // try filtering collinear/coincident points and slicing again — repeat as long as
+            // try filtering collinear/coincident points and slicing again - repeat as long as
             // filtering actually removes nodes, since each removal can expose new ears
             filteredOut = false;
             ear = filterPoints(ear);
@@ -347,7 +347,7 @@ function eliminateHole(hole, outerNode) {
 
 // Block-bbox index for findHoleBridge (issue #183): one [minX,minY,maxX,maxY] bbox per K
 // consecutive ring edges, in a flat Float64Array, so the leftward-ray scan can skip whole
-// blocks in O(1) instead of walking the entire merged ring. Grown append-only — the outer
+// blocks in O(1) instead of walking the entire merged ring. Grown append-only - the outer
 // ring seeds it, then each merged hole appends a segment (head node, stop node, K-blocks
 // over head..stop); independent segments, not a ring tiling, since splices land mid-ring.
 // Buffers are sized once from the input upper bound and reused across calls.
@@ -355,7 +355,7 @@ function eliminateHole(hole, outerNode) {
 // filterPoints only drops collinear/coincident points, so a stale bbox stays a conservative
 // superset of its live edges (never a false skip); the scan skips dead nodes (p.prev.next !==
 // p) and lazily advances a dead stop. Blocks are scanned in append (not ring) order, so the
-// chosen bridge can differ from the un-indexed code — a different but equally valid result.
+// chosen bridge can differ from the un-indexed code - a different but equally valid result.
 const K = 16; // edges per block
 
 let blockBBox = new Float64Array(0); // [minX,minY,maxX,maxY] per block
@@ -447,7 +447,7 @@ function findHoleBridge(hole, outerNode) {
     if (equals(hole, p)) return p;
 
     // scan blocks; skip any whose bbox can't hold a crossing that beats qx and lies left
-    // of hx (the prune Morton order can't express — explicit per-axis [minY,maxY]/[minX,maxX])
+    // of hx (the prune Morton order can't express - explicit per-axis [minY,maxY]/[minX,maxX])
     for (let b = 0, g = 0; b < numBlocks; b++, g += 4) {
         if (hy < blockBBox[g + 1] || hy > blockBBox[g + 3] || blockBBox[g] > hx || blockBBox[g + 2] <= qx) continue;
 
@@ -497,7 +497,7 @@ function findHoleBridge(hole, outerNode) {
                 const tan = Math.abs(hy - p.y) / (hx - p.x); // tangential
 
                 // if hole point sits on p's horizontal edge (T-junction touch): the bridge runs
-                // along that edge — locallyInside rejects it as collinear, but it's valid
+                // along that edge - locallyInside rejects it as collinear, but it's valid
                 if ((locallyInside(p, hole) || (p.y === hy && p.next.y === hy && p.next.x > hx)) &&
                     (tan < tanMin || (tan === tanMin && (p.x > m.x || (p.x === m.x && sectorContainsSector(m, p)))))) {
                     m = p;
@@ -692,7 +692,7 @@ function onSegment(p, q, r) {
 /** @param {Node} a @param {Node} b @returns {boolean} */
 function intersectsPolygon(a, b) {
     // diagonal bbox; an edge whose bbox can't overlap it can't intersect it, so
-    // skip the orientation test for those (the common case — the diagonal is short)
+    // skip the orientation test for those (the common case - the diagonal is short)
     const minX = Math.min(a.x, b.x);
     const maxX = Math.max(a.x, b.x);
     const minY = Math.min(a.y, b.y);
@@ -808,7 +808,7 @@ function createNode(i, x, y) {
 }
 
 /**
- * Return the relative difference between the polygon area and the area of its triangulation —
+ * Return the relative difference between the polygon area and the area of its triangulation -
  * a value near 0 means a correct triangulation. Useful for verifying output in tests.
  *
  * @param {ArrayLike<number>} data
@@ -895,7 +895,7 @@ let hMask = 0, gen = 0;
 
 /**
  * Refine a triangulation toward the constrained Delaunay triangulation by legalizing every
- * interior edge in place with Lawson flips — maximizing the minimum angle and removing most
+ * interior edge in place with Lawson flips - maximizing the minimum angle and removing most
  * slivers. An optional post-pass for {@link earcut} output, or any manifold triangle-index array
  * indexing into `coords`. Adapted from delaunator's edge legalization.
  *
@@ -916,7 +916,7 @@ export function refine(triangles, coords, dim = 2) {
     he.fill(-1, 0, n);
 
     // Build half-edge twins with an undirected-edge hash; consumed slots mark linked pairs. As each
-    // pair is linked we seed the stack with one representative (s, the earlier-inserted edge) — this
+    // pair is linked we seed the stack with one representative (s, the earlier-inserted edge) - this
     // fuses the initial "push every interior edge" pass into the build, saving a full O(n) scan.
     // edgeStamp is all-zero here (balanced push/pop leaves it clean) and each pair links once, so
     // the seed write needs no dedup guard.
@@ -927,7 +927,7 @@ export function refine(triangles, coords, dim = 2) {
         let h = (Math.imul(lo, 0x9e3779b1) ^ Math.imul(hi, 0x85ebca6b)) & hMask;
         while (hStamp[h] === gen) {
             const s = hTable[h];
-            // s === -1 marks a consumed slot (a pair already linked) — skip past it
+            // s === -1 marks a consumed slot (a pair already linked) - skip past it
             if (s !== -1) {
                 const sa = t[s], sb = t[nextHE(s)];
                 if ((sa === lo && sb === hi) || (sa === hi && sb === lo)) {
@@ -962,8 +962,8 @@ export function refine(triangles, coords, dim = 2) {
 
         // Test inCircle first: most interior edges are already Delaunay (inCircle true → no flip),
         // so this short-circuits before the two convexity orients on the common path. The quad must
-        // also be convex (both new triangles CCW) — flipping a reflex quad would push a triangle
-        // outside the polygon. Boundary/hole edges need no guard — they self-protect via he === -1.
+        // also be convex (both new triangles CCW) - flipping a reflex quad would push a triangle
+        // outside the polygon. Boundary/hole edges need no guard - they self-protect via he === -1.
         if (!inCircle(x0, y0, xr, yr, xl, yl, x1, y1) &&
             orient(x0, y0, xr, yr, x1, y1) > 0 && orient(x0, y0, x1, y1, xl, yl) > 0) {
             t[a] = p1; t[b] = p0;
@@ -988,14 +988,14 @@ function orient(ax, ay, bx, by, cx, cy) {
 }
 
 // Whether p is inside or exactly on the circumcircle of triangle (a, b, c). Sign is negated vs the
-// usual predicate to match earcut's CCW winding — the standard sign would build the anti-Delaunay
+// usual predicate to match earcut's CCW winding - the standard sign would build the anti-Delaunay
 // mesh. Cocircular quads are legal ties, so refine only flips when this returns false.
 /** @param {number} ax @param {number} ay @param {number} bx @param {number} by @param {number} cx @param {number} cy @param {number} px @param {number} py */
 function inCircle(ax, ay, bx, by, cx, cy, px, py) {
     const dx = ax - px, dy = ay - py, ex = bx - px, ey = by - py, fx = cx - px, fy = cy - py;
     const ap = dx * dx + dy * dy, bp = ex * ex + ey * ey, cp = fx * fx + fy * fy;
     // A near-cocircular quad is a legal Delaunay tie, but roundoff can flag both an edge and its
-    // flip as illegal, cascading into an endless flip loop (#205) — so treat a determinant within
+    // flip as illegal, cascading into an endless flip loop (#205) - so treat a determinant within
     // a small margin of zero as a tie. The determinant's worst-case roundoff error is provably
     // below 9e-16·(ap + bp + cp)² (Shewchuk-style bound), so the margin guarantees every executed
     // flip is illegal in exact arithmetic, and Lawson flipping always terminates.
@@ -1012,7 +1012,7 @@ function nextHE(e) { // next half-edge within the same triangle
 // than at module load lets the whole refine() block tree-shake away for callers who don't use it.
 /** @param {number} n */
 function ensureScratch(n) {
-    // edgeStack holds at most one entry per half-edge (edgeStamp dedups), so n is a safe cap —
+    // edgeStack holds at most one entry per half-edge (edgeStamp dedups), so n is a safe cap -
     // sizing it up front lets the cascade push without a bounds/grow check.
     if (!edgeStack || edgeStack.length < n) edgeStack = new Int32Array(n);
     if (!he || he.length < n) he = new Int32Array(n);

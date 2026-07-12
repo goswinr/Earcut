@@ -21,7 +21,7 @@ https://github.com/mapbox/earcut
 
 Stable for .NET 4.7 and .NET 6.0 and JS via Fable.
 
-v3.2.3 ported to F# on 2026-07-14
+v3.2.3 ported to F# on 2026-07-12
 
 [All tests](https://github.com/mapbox/earcut/blob/main/test/test.js) of the original JS version pass,
 including the MVT regression suite over 119,680 real-world polygons.
@@ -35,7 +35,7 @@ It has no dependencies.
 
 The F# port has about the same performance as the original JS version when compiled back to JS with Fable.
 
-Earcut is heavily optimized for its primary workload — triangulating polygons from
+Earcut is heavily optimized for its primary workload - triangulating polygons from
 [Mapbox Vector Tiles](https://github.com/mapbox/vector-tile-spec).
 You can run the MVT benchmark (119,680 real-world polygons, 1.9M vertices) yourself with
 `node Test/bench/bench-tiles.js` (after `dotnet fable`), and the refinement benchmark with
@@ -67,16 +67,16 @@ and earcut is not precise enough, take a look at [libtess.js](https://github.com
 
 ## Robustness
 
-Earcut does **not** guarantee a correct triangulation on arbitrary input — it trades quality
+Earcut does **not** guarantee a correct triangulation on arbitrary input - it trades quality
 for speed, aiming to always produce an acceptable result on practical data without crashing or
 emitting garbage. The input is assumed to be a valid polygon: rings that don't self-cross or
 overlap, holes that stay inside the outer ring, and no duplicate or zero-length edges. On input
-that breaks these assumptions, the result can be noticeably wrong — overlapping triangles, gaps,
+that breaks these assumptions, the result can be noticeably wrong - overlapping triangles, gaps,
 or triangles outside the polygon. If correctness matters, clean your input first (see also the
 `validate` function below); for a guaranteed-correct triangulation even on bad data, see
 [libtess.js](https://github.com/brendankenny/libtess.js) (slower and larger).
 
-The output is also not _conforming_ — a vertex may land in the middle of another triangle's edge
+The output is also not _conforming_ - a vertex may land in the middle of another triangle's edge
 (a T-junction). This is harmless for rendering but can break navmesh or FEM use; if you need a
 conforming mesh, remove T-junctions in a post-process.
 
@@ -110,7 +110,7 @@ y = vertices[i * dimensions + 1]
 ```
 
 Output triangles always have a consistent **winding order** regardless of the input polygon's winding
-— counter-clockwise in a y-up coordinate system (clockwise in y-down/screen space). <br>
+- counter-clockwise in a y-up coordinate system (clockwise in y-down/screen space). <br>
 If you need the opposite orientation (e.g. for back-face culling or normals in 3D), reverse the result.
 
 ## Convenience F# API: `earcutTrianglesFromMembersxy` and `earcutTrianglesFromMembersXY`
@@ -259,7 +259,7 @@ Earcut.validate(vertices, holes, dimensions)
 
 Since v3.2.3, and mirroring the upstream JS implementation, this library keeps reusable scratch
 state at module level (for the hole-bridge spatial index, the z-order sort and `refine` buffers). <br>
-Calls into the `Earcut` module are therefore **not thread-safe** — do not triangulate
+Calls into the `Earcut` module are therefore **not thread-safe** - do not triangulate
 concurrently from multiple threads.
 
 
