@@ -79,13 +79,13 @@ let runTest (name: string) (testFn: unit -> bool) =
 // Test: indices-2d
 runTest "indices-2d" (fun () ->
     let indices = earcut([|10.0; 0.0; 0.0; 50.0; 60.0; 60.0; 70.0; 10.0|], null, 2)
-    assertDeepEqual (ResizeArray([1; 0; 3; 3; 2; 1])) indices "indices-2d"
+    assertDeepEqual (ResizeArray([1; 0; 3; 1; 3; 2])) indices "indices-2d"
 )
 
 // Test: indices-3d
 runTest "indices-3d" (fun () ->
     let indices = earcut([|10.0; 0.0; 0.0; 0.0; 50.0; 0.0; 60.0; 60.0; 0.0; 70.0; 10.0; 0.0|], null, 3)
-    assertDeepEqual (ResizeArray([1; 0; 3; 3; 2; 1])) indices "indices-3d"
+    assertDeepEqual (ResizeArray([1; 0; 3; 1; 3; 2])) indices "indices-3d"
 )
 
 // Test: empty

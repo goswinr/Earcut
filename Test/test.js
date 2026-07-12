@@ -10,12 +10,12 @@ const expected = JSON.parse(fs.readFileSync(new URL('expected.json', import.meta
 
 test('indices-2d', () => {
     const indices = earcut([10, 0, 0, 50, 60, 60, 70, 10], null, 2); // add dims for F# version
-    assert.deepEqual(indices, [1, 0, 3, 3, 2, 1]);
+    assert.deepEqual(indices, [1, 0, 3, 1, 3, 2]);
 });
 
 test('indices-3d', () => {
     const indices = earcut([10, 0, 0, 0, 50, 0, 60, 60, 0, 70, 10, 0], null, 3);
-    assert.deepEqual(indices, [1, 0, 3, 3, 2, 1]);
+    assert.deepEqual(indices, [1, 0, 3, 1, 3, 2]);
 });
 
 test('empty', () => {

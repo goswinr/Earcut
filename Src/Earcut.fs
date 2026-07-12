@@ -2,12 +2,21 @@
 
 // https://github.com/mapbox/earcut
 
-// https://github.com/mapbox/earcut/blob/54cbb0d38ece2441e510e61a40d187c8f6f514da/src/earcut.js
+// https://github.com/mapbox/earcut/blob/15928aef4dc8af0055186d17757da71940aff978/src/earcut.js
 
-// v3.0.2 from 2025-11-6
+// v3.2.3 from 2026-07-01
 module Earcut
 
+open System.Collections.Generic
 
+// NOTE: mirroring the upstream JS, this port keeps reusable scratch state at module level
+// (the steiner-point set, the hole-bridge block index, and the sort and refine buffers),
+// so calls into this module are NOT thread-safe. Do not triangulate concurrently from
+// multiple threads.
+
+/// A vertex in a circular doubly linked list representing a polygon ring.
+/// prev/next are always linked (set immediately after createNode);
+/// prevZ/nextZ are the z-order list links and are null at the ends.
 type internal Node = {
     /// vertex index in coordinates array
     i: int
@@ -19,14 +28,12 @@ type internal Node = {
     mutable prev: Node
     /// next vertex nodes in a polygon ring
     mutable next: Node
-    /// z-order curve value
+    /// z-order curve value; doubles as the owning block index during eliminateHoles
     mutable z: int
     /// previous nodes in z-order
     mutable prevZ: Node
     /// next nodes in z-order
     mutable nextZ: Node
-    /// indicates whether this is a Steiner point
-    mutable steiner: bool
 }
 
 let inline internal createNode(i: int, x: float, y: float) : Node =
@@ -39,7 +46,6 @@ let inline internal createNode(i: int, x: float, y: float) : Node =
     z = 0
     prevZ = Unchecked.defaultof<Node>
     nextZ = Unchecked.defaultof<Node>
-    steiner = false
     }
 
 let inline internal (===) (a:Node) (b:Node) = obj.ReferenceEquals(a, b)
@@ -49,6 +55,136 @@ let inline internal (=!=) (a:Node) (b:Node) = not <| obj.ReferenceEquals(a, b)
 let inline internal notNull (node: Node) : bool = not <| obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
 
 let inline internal isNull (node: Node) : bool = obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
+
+/// Creates an int array of the given length, initialized to zero. (an Int32Array when compiled with Fable)
+let inline arrayZeroCreateInt (len:int) : int [] =
+    #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+        Fable.Core.JsInterop.emitJsExpr (len) "new Int32Array($0)"
+    #else
+        Array.zeroCreate<int> len
+    #endif
+
+/// Creates a float array of the given length, initialized to zero. (a Float64Array when compiled with Fable)
+let inline arrayZeroCreateFloat (len:int) : float [] =
+    #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+        Fable.Core.JsInterop.emitJsExpr (len) "new Float64Array($0)"
+    #else
+        Array.zeroCreate<float> len
+    #endif
+
+// 32-bit integer multiplication with wrap-around overflow (Math.imul in JS)
+let inline internal imul (a: int) (b: int) : int =
+    #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+        Fable.Core.JsInterop.emitJsExpr (a, b) "Math.imul($0, $1)"
+    #else
+        a * b
+    #endif
+
+// single-vertex holes to preserve through filterPoints (steiner points); kept off the Node
+// shape since they're rare — the empty-set fast path means non-steiner inputs pay nothing
+let internal steiners = HashSet<Node>(HashIdentity.Reference)
+
+// set by filterPoints whenever it removes at least one node; read by earcutLinked's stall
+// handler to decide whether another clip pass is worth attempting before the costlier stages
+let mutable internal filteredOut = false
+
+// Block-bbox index for findHoleBridge (issue #183): one [minX,minY,maxX,maxY] bbox per K
+// consecutive ring edges, in a flat float array, so the leftward-ray scan can skip whole
+// blocks in O(1) instead of walking the entire merged ring. Grown append-only — the outer
+// ring seeds it, then each merged hole appends a segment (head node, stop node, K-blocks
+// over head..stop); independent segments, not a ring tiling, since splices land mid-ring.
+// Buffers are sized once from the input upper bound and reused across calls.
+//
+// filterPoints only drops collinear/coincident points, so a stale bbox stays a conservative
+// superset of its live edges (never a false skip); the scan skips dead nodes (p.prev.next =!=
+// p) and lazily advances a dead stop. Blocks are scanned in append (not ring) order, so the
+// chosen bridge can differ from the un-indexed code — a different but equally valid result.
+[<Literal>]
+let internal K = 16 // edges per block
+
+let mutable internal blockBBox : float[] = Array.empty // [minX,minY,maxX,maxY] per block
+let mutable internal numBlocks = 0
+let mutable internal blockHead : Node[] = Array.empty // first node of each block's segment
+let mutable internal blockStop : Node[] = Array.empty // node just past each block's segment (exclusive walk bound)
+
+// true only while eliminateHoles merges holes, so removeNode keeps the block index live (growBlock)
+let mutable internal indexActive = false
+
+let internal buildBlockIndex(maxNodes: int, numHoles: int) : unit =
+    // upper bound: every input node indexed once, +2 bridge nodes per hole, plus a partial
+    // trailing block per appended segment (outer ring + one per hole)
+    let maxBlocks = (maxNodes + 2 * numHoles + K - 1) / K + numHoles + 2
+    if blockBBox.Length < maxBlocks * 4 then blockBBox <- arrayZeroCreateFloat (maxBlocks * 4)
+    if blockHead.Length < maxBlocks then
+        blockHead <- Array.zeroCreate maxBlocks
+        blockStop <- Array.zeroCreate maxBlocks
+    numBlocks <- 0
+
+// index the ring run head..stop (exclusive) as ceil(len / K) blocks; head === stop means
+// the whole ring. each block's bbox covers both endpoints of every edge it owns.
+let internal indexSegment(head: Node, stop: Node) : unit =
+    let mutable p = head
+    let mutable continueOuter = true
+    // do-while loop: execute once then check condition
+    while continueOuter do
+        let b = numBlocks
+        numBlocks <- numBlocks + 1
+        blockHead.[b] <- p
+        let mutable minX = infinity
+        let mutable minY = infinity
+        let mutable maxX = -infinity
+        let mutable maxY = -infinity
+        let mutable k = 0
+        let mutable continueInner = true
+        // do-while loop: execute once then check condition
+        while continueInner do
+            let c = p.next // edge p->c; bbox must bound both endpoints
+            p.z <- b // reuse z as the owning block during eliminateHoles (see growBlock)
+            if p.x < minX then minX <- p.x
+            if p.x > maxX then maxX <- p.x
+            if p.y < minY then minY <- p.y
+            if p.y > maxY then maxY <- p.y
+            if c.x < minX then minX <- c.x
+            if c.x > maxX then maxX <- c.x
+            if c.y < minY then minY <- c.y
+            if c.y > maxY then maxY <- c.y
+            p <- c
+            k <- k + 1
+            if not (k < K && p =!= stop) then continueInner <- false
+        blockStop.[b] <- p
+        let g = b * 4
+        blockBBox.[g] <- minX
+        blockBBox.[g + 1] <- minY
+        blockBBox.[g + 2] <- maxX
+        blockBBox.[g + 3] <- maxY
+        if p === stop then continueOuter <- false
+
+// when filterPoints heals an edge head->tail (removing the collinear node between them), the
+// healed edge can extend past head's frozen block bbox if its old far endpoint lived in another
+// block; grow head's block bbox to cover tail so the leftward-ray prune can't false-skip it.
+let inline internal growBlock(head: Node, tail: Node) : unit =
+    let g = head.z * 4
+    if tail.x < blockBBox.[g] then blockBBox.[g] <- tail.x
+    if tail.y < blockBBox.[g + 1] then blockBBox.[g + 1] <- tail.y
+    if tail.x > blockBBox.[g + 2] then blockBBox.[g + 2] <- tail.x
+    if tail.y > blockBBox.[g + 3] then blockBBox.[g + 3] <- tail.y
+
+// ensure the walk's exclusive bound is live so we don't overrun into other blocks
+let internal liveBlockStop(b: int) : Node =
+    let mutable stop = blockStop.[b]
+    while stop.prev.next =!= stop do stop <- stop.next
+    blockStop.[b] <- stop
+    stop
+
+// the block's head node can be removed by filterPoints during merges; advance it to the next
+// live node so the walk doesn't start on (and immediately terminate at) a dead node. For the
+// single full-ring seed block (head === stop) the same forward advance keeps them equal, so the
+// do-while still laps the whole ring instead of collapsing to an empty walk.
+let internal liveBlockHead(b: int) : Node =
+    let mutable head = blockHead.[b]
+    while head.prev.next =!= head do head <- head.next
+    blockHead.[b] <- head
+    head
 
 // create a node and optionally link it with previous one (in a circular doubly linked list)
 let inline internal insertNode (i: int, x: float, y: float, last: Node) : Node =
@@ -70,6 +206,9 @@ let inline internal removeNode (p: Node) : unit =
     if notNull p.prevZ then p.prevZ.nextZ <- p.nextZ
     if notNull p.nextZ then p.nextZ.prevZ <- p.prevZ
 
+    // keep the hole-bridge index's block bboxes covering the healed prev->next edge
+    if indexActive then growBlock(p.prev, p.next)
+
 // signed area of a triangle
 let inline internal area (p: Node, q: Node, r: Node) : float =
     (q.y - p.y) * (r.x - q.x) - (q.x - p.x) * (r.y - q.y)
@@ -84,48 +223,24 @@ let inline internal pointInTriangle(ax: float, ay: float, bx: float, by: float, 
     (ax - px) * (by - py) >= (bx - px) * (ay - py) &&
     (bx - px) * (cy - py) >= (cx - px) * (by - py)
 
-// check if a point lies within a convex triangle but false if its equal to the first point of the triangle
-let inline internal pointInTriangleExceptFirst(ax: float, ay: float, bx: float, by: float, cx: float, cy: float, px: float, py: float) : bool =
-    not (ax = px && ay = py) && pointInTriangle(ax, ay, bx, by, cx, cy, px, py)
-
 // for collinear points p, q, r, check if point q lies on segment pr
 let inline internal onSegment(p: Node, q: Node, r: Node) : bool =
     q.x <= max p.x r.x && q.x >= min p.x r.x && q.y <= max p.y r.y && q.y >= min p.y r.y
 
-let inline internal sign(num: float) : int =
-    if num > 0.0 then 1
-    elif num < 0.0 then -1
-    else 0
+// check if two segments intersect; includeBoundary includes collinear boundary touches
+let inline internal intersects(p1: Node, q1: Node, p2: Node, q2: Node, includeBoundary: bool) : bool =
+    let o1 = area(p1, q1, p2)
+    let o2 = area(p1, q1, q2)
+    let o3 = area(p2, q2, p1)
+    let o4 = area(p2, q2, q1)
 
-// check if two segments intersect
-let inline internal intersects(p1: Node, q1: Node, p2: Node, q2: Node) : bool =
-    let o1 = sign(area(p1, q1, p2))
-    let o2 = sign(area(p1, q1, q2))
-    let o3 = sign(area(p2, q2, p1))
-    let o4 = sign(area(p2, q2, q1))
-
-    if o1 <> o2 && o3 <> o4 then true // general case
-    elif o1 = 0 && onSegment(p1, p2, q1) then true // p1, q1 and p2 are collinear and p2 lies on p1q1
-    elif o2 = 0 && onSegment(p1, q2, q1) then true // p1, q1 and q2 are collinear and q2 lies on p1q1
-    elif o3 = 0 && onSegment(p2, p1, q2) then true // p2, q2 and p1 are collinear and p1 lies on p2q2
-    elif o4 = 0 && onSegment(p2, q1, q2) then true // p2, q2 and q1 are collinear and q1 lies on p2q2
+    if ((o1 > 0.0 && o2 < 0.0) || (o1 < 0.0 && o2 > 0.0)) && ((o3 > 0.0 && o4 < 0.0) || (o3 < 0.0 && o4 > 0.0)) then true // general case
+    elif not includeBoundary then false
+    elif o1 = 0.0 && onSegment(p1, p2, q1) then true // p1, q1 and p2 are collinear and p2 lies on p1q1
+    elif o2 = 0.0 && onSegment(p1, q2, q1) then true // p1, q1 and q2 are collinear and q2 lies on p1q1
+    elif o3 = 0.0 && onSegment(p2, p1, q2) then true // p2, q2 and p1 are collinear and p1 lies on p2q2
+    elif o4 = 0.0 && onSegment(p2, q1, q2) then true // p2, q2 and q1 are collinear and q1 lies on p2q2
     else false
-
-// check if a polygon diagonal intersects any polygon segments
-let inline internal intersectsPolygon(a: Node, b: Node) : bool =
-    let mutable p = a
-    let mutable result = false
-    let mutable continueLoop = true
-    // do-while loop: execute once then check condition
-    while continueLoop do
-        if p.i <> a.i && p.next.i <> a.i && p.i <> b.i && p.next.i <> b.i &&
-            intersects(p, p.next, a, b) then
-            result <- true
-            continueLoop <- false
-        else
-            p <- p.next
-            if p === a then continueLoop <- false
-    result
 
 // check if a polygon diagonal is locally inside the polygon
 let inline internal locallyInside(a: Node, b: Node) : bool =
@@ -143,12 +258,41 @@ let inline internal middleInside(a: Node, b: Node) : bool =
     let mutable continueLoop = true
     // do-while loop: execute once then check condition
     while continueLoop do
-        if ((p.y > py) <> (p.next.y > py)) && p.next.y <> p.y &&
-            (px < (p.next.x - p.x) * (py - p.y) / (p.next.y - p.y) + p.x) then
+        let n = p.next
+        if ((p.y > py) <> (n.y > py)) &&
+            (px < (n.x - p.x) * (py - p.y) / (n.y - p.y) + p.x) then
             inside <- not inside
-        p <- p.next
+        p <- n
         if p === a then continueLoop <- false
     inside
+
+// check if a polygon diagonal intersects any polygon segments
+let inline internal intersectsPolygon(a: Node, b: Node) : bool =
+    // diagonal bbox; an edge whose bbox can't overlap it can't intersect it, so
+    // skip the orientation test for those (the common case — the diagonal is short)
+    let minX = min a.x b.x
+    let maxX = max a.x b.x
+    let minY = min a.y b.y
+    let maxY = max a.y b.y
+
+    let mutable p = a
+    let mutable result = false
+    let mutable continueLoop = true
+    // do-while loop: execute once then check condition
+    while continueLoop do
+        let n = p.next
+        if (p.x > maxX && n.x > maxX) || (p.x < minX && n.x < minX) ||
+           (p.y > maxY && n.y > maxY) || (p.y < minY && n.y < minY) then
+            p <- n
+            if p === a then continueLoop <- false
+        elif p.i <> a.i && n.i <> a.i && p.i <> b.i && n.i <> b.i &&
+            intersects(p, n, a, b, true) then
+            result <- true
+            continueLoop <- false
+        else
+            p <- n
+            if p === a then continueLoop <- false
+    result
 
 // link two polygon vertices with a bridge; if the vertices belong to the same ring, it splits polygon into two;
 // if one belongs to the outer ring and another to a hole, it merges it into a single ring
@@ -174,10 +318,10 @@ let inline internal splitPolygon(a: Node, b: Node) : Node =
 
 // check if a diagonal between two polygon nodes is valid (lies in polygon interior)
 let inline internal isValidDiagonal(a: Node, b: Node) : bool =
-    a.next.i <> b.i && a.prev.i <> b.i && not (intersectsPolygon(a, b)) && // doesn't intersect other edges
-    (locallyInside(a, b) && locallyInside(b, a) && middleInside(a, b) && // locally visible
-     (area(a.prev, a, b.prev) <> 0.0 || area(a, b.prev, b) <> 0.0) || // does not create opposite-facing sectors
-     equals(a, b) && area(a.prev, a, a.next) > 0.0 && area(b.prev, b, b.next) > 0.0) // special zero-length case
+    let zeroLength = equals(a, b) && area(a.prev, a, a.next) > 0.0 && area(b.prev, b, b.next) > 0.0 // degenerate case
+    a.next.i <> b.i && (zeroLength || locallyInside(a, b) && locallyInside(b, a) && // locally visible
+        (area(a.prev, a, b.prev) <> 0.0 || area(a, b.prev, b) <> 0.0)) && // no opposite-facing sectors
+        not (intersectsPolygon(a, b)) && (zeroLength || middleInside(a, b)) // doesn't intersect other edges, diagonal inside polygon
 
 // z-order of a point given coords and inverse of the longer side of data bbox
 let inline internal zOrder(x: float, y: float, minX: float, minY: float, invSize: float) : int =
@@ -214,76 +358,91 @@ let inline internal getLeftmost(start: Node) : Node =
 let inline internal sectorContainsSector(m: Node, p: Node) : bool =
     area(m.prev, m, p.prev) < 0.0 && area(p.next, m, m.next) < 0.0
 
-// Simon Tatham's linked list merge sort algorithm
-// http://www.chiark.greenend.org.uk/~sgtatham/algorithms/listsort.html
-let rec internal sortLinked(list: Node) : Node =
-    let mutable numMerges = 0
-    let mutable inSize = 1
-    let mutable list = list
-    let mutable continueOuter = true
+// scratch buffers reused across calls and grown on demand: two node-ref arrays that
+// ping-pong during the radix passes, plus parallel z-value arrays so the passes read
+// z from contiguous memory instead of dereferencing each node. 256-entry histogram for
+// 8-bit digits; the small histogram keeps per-call setup cheap (most rings are short)
+let mutable internal sortArr : Node[] = Array.empty
+let mutable internal sortBuf : Node[] = Array.empty
+let mutable internal zArr : int[] = Array.empty
+let mutable internal zBuf : int[] = Array.empty
+let internal counts = arrayZeroCreateInt 256
 
-    while continueOuter do
-        let mutable p = list
-        list <- Unchecked.defaultof<Node>
-        let mutable tail = Unchecked.defaultof<Node>
-        numMerges <- 0
+// one LSD radix pass: stably scatter the first n nodes (and their z) from src to dst,
+// bucketed by the 8-bit digit of z at the given bit shift
+let internal radixPass(n: int, src: Node[], srcZ: int[], dst: Node[], dstZ: int[], shift: int) : unit =
+    Array.fill counts 0 256 0
+    for i = 0 to n - 1 do
+        let d = (srcZ.[i] >>> shift) &&& 0xff
+        counts.[d] <- counts.[d] + 1
+    // turn per-bucket counts into start offsets (prefix sum)
+    let mutable sum = 0
+    for b = 0 to 255 do
+        let c = counts.[b]
+        counts.[b] <- sum
+        sum <- sum + c
+    for i = 0 to n - 1 do
+        let z = srcZ.[i]
+        let d = (z >>> shift) &&& 0xff
+        let pos = counts.[d]
+        counts.[d] <- pos + 1
+        dst.[pos] <- src.[i]
+        dstZ.[pos] <- z
 
-        while notNull p do
-            numMerges <- numMerges + 1
-            let mutable q = p
-            let mutable pSize = 0
-            let mutable i = 0
-            while i < inSize do
-                pSize <- pSize + 1
-                q <- q.nextZ
-                if isNull q then i <- inSize // exit loop
-                else i <- i + 1
+// sort the first n nodes of sortArr by z, in place: insertion sort for small n (cheaper
+// than histogram setup), else LSD radix in four 8-bit passes (covering z's 30 bits)
+let internal sortNodes(n: int) : unit =
+    if n <= 32 then
+        for i = 1 to n - 1 do
+            let node = sortArr.[i]
+            let z = node.z
+            let mutable j = i - 1
+            while j >= 0 && sortArr.[j].z > z do
+                sortArr.[j + 1] <- sortArr.[j]
+                j <- j - 1
+            sortArr.[j + 1] <- node
+    else
+        if zArr.Length < n then
+            zArr <- arrayZeroCreateInt n
+            zBuf <- arrayZeroCreateInt n
+            sortBuf <- Array.zeroCreate n
+        for i = 0 to n - 1 do
+            zArr.[i] <- sortArr.[i].z
 
-            let mutable qSize = inSize
+        // even pass count lands the sorted result back in sortArr
+        radixPass(n, sortArr, zArr, sortBuf, zBuf, 0)
+        radixPass(n, sortBuf, zBuf, sortArr, zArr, 8)
+        radixPass(n, sortArr, zArr, sortBuf, zBuf, 16)
+        radixPass(n, sortBuf, zBuf, sortArr, zArr, 24)
 
-            while pSize > 0 || (qSize > 0 && notNull q) do
-                let mutable e = Unchecked.defaultof<Node>
-
-                if pSize <> 0 && (qSize = 0 || isNull q || p.z <= q.z) then
-                    e <- p
-                    p <- p.nextZ
-                    pSize <- pSize - 1
-                else
-                    e <- q
-                    q <- q.nextZ
-                    qSize <- qSize - 1
-
-                if notNull tail then tail.nextZ <- e
-                else list <- e
-
-                e.prevZ <- tail
-                tail <- e
-
-            p <- q
-
-        tail.nextZ <- Unchecked.defaultof<Node>
-        inSize <- inSize * 2
-
-        if numMerges <= 1 then continueOuter <- false
-
-    list
-
-// interlink polygon nodes in z-order
+// interlink polygon nodes in z-order: collect into an array, sort by z, relink
 let internal indexCurve(start: Node, minX: float, minY: float, invSize: float) : unit =
     let mutable p = start
+    let mutable n = 0
     let mutable continueLoop = true
     // do-while loop: execute once then check condition
     while continueLoop do
-        if p.z = 0 then p.z <- zOrder(p.x, p.y, minX, minY, invSize)
-        p.prevZ <- p.prev
-        p.nextZ <- p.next
+        // always (re)compute: z may still hold a block index left over from eliminateHoles
+        p.z <- zOrder(p.x, p.y, minX, minY, invSize)
+        if n >= sortArr.Length then
+            // grow the reusable node array (the JS pushes into a plain array)
+            let grown = Array.zeroCreate (max 256 (sortArr.Length * 2))
+            Array.blit sortArr 0 grown 0 sortArr.Length
+            sortArr <- grown
+        sortArr.[n] <- p
+        n <- n + 1
         p <- p.next
         if p === start then continueLoop <- false
 
-    p.prevZ.nextZ <- Unchecked.defaultof<Node>
-    p.prevZ <- Unchecked.defaultof<Node>
+    sortNodes(n)
 
-    sortLinked(p) |> ignore
+    let mutable prev = Unchecked.defaultof<Node>
+    for i = 0 to n - 1 do
+        let node = sortArr.[i]
+        node.prevZ <- prev
+        if notNull prev then prev.nextZ <- node
+        prev <- node
+    prev.nextZ <- Unchecked.defaultof<Node>
 
 let inline internal signedArea(data: array<float>, start: int, end_: int, dim: int) : float =
     let mutable sum = 0.0
@@ -316,136 +475,123 @@ let internal linkedList(data: array<float>, start: int, end_: int, dim: int, clo
 
     last
 
-// eliminate colinear or duplicate points
-// in JS this sometimes gets called with just one argument
-let rec internal filterPoints(start: Node, ende: Node) : Node =
-    if isNull start then
-        start
-    else
-        let mutable ende = if isNull ende then start else ende
-        let mutable p = start
-        let mutable continueLoop = true
+// Remove collinear or coincident points; removability depends only on a node's immediate
+// neighbors, so we sweep forward and re-check the predecessor after each removal. When ende
+// equals start we sweep the whole ring, lapping until nothing is removable (the fixpoint the
+// clipper needs). With a distinct ende we heal only the dirty window around a bridge/diagonal
+// cut, stopping at ende rather than lapping — O(window) instead of O(ring).
+let internal filterPoints(start: Node, ende: Node) : Node =
+    let full = ende === start
 
-        // do-while loop: execute once then check condition
-        while continueLoop do
+    let mutable ende = ende
+    let mutable p = start
+    let mutable again = false
+    let mutable continueLoop = true
+    // do-while loop: execute once then check condition
+    while continueLoop do
+        again <- false
+        if p =!= p.next && (steiners.Count = 0 || not (steiners.Contains p)) &&
+            (equals(p, p.next) || area(p.prev, p, p.next) = 0.0) then
+            if full || p === ende then ende <- p.prev // pull the stop bound back past the removal
+            filteredOut <- true
+            removeNode(p)
+            p <- p.prev         // re-check the predecessor
+            again <- true
+        elif full || p =!= ende then
+            p <- p.next
+            again <- not full   // local heal: keep looping until the sweep reaches ende
+        continueLoop <- again || p =!= ende
 
-            if not p.steiner && (equals(p, p.next) || area(p.prev, p, p.next) = 0.0) then
-                removeNode(p)
-                ende <- p.prev
-                p <- ende
-                if p === p.next then
-                    continueLoop <-  p =!= ende
-                else
-                    continueLoop <- true
-            else
-                p <- p.next
-                continueLoop <-  p =!= ende
-
-        ende
+    ende
 
 // check whether a polygon node forms a valid ear with adjacent nodes
 let internal isEar(ear: Node) : bool =
+    // reflex check (area(a, b, c) >= 0) is hoisted into the earcutLinked caller
     let a = ear.prev
     let b = ear
     let c = ear.next
 
-    if area(a, b, c) >= 0.0 then false // reflex, can't be an ear
-    else
-        // now make sure we don't have other points inside the potential ear
-        let ax = a.x
-        let bx = b.x
-        let cx = c.x
-        let ay = a.y
-        let by = b.y
-        let cy = c.y
+    let ax = a.x
+    let bx = b.x
+    let cx = c.x
+    let ay = a.y
+    let by = b.y
+    let cy = c.y
 
-        // triangle bbox
-        let x0 = min (min ax bx) cx
-        let y0 = min (min ay by) cy
-        let x1 = max (max ax bx) cx
-        let y1 = max (max ay by) cy
+    // triangle bbox
+    let x0 = min (min ax bx) cx
+    let y0 = min (min ay by) cy
+    let x1 = max (max ax bx) cx
+    let y1 = max (max ay by) cy
 
-        let mutable p = c.next
-        let mutable result = true
-        while p =!= a && result do
-            if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 &&
-                pointInTriangleExceptFirst(ax, ay, bx, by, cx, cy, p.x, p.y) &&
-                area(p.prev, p, p.next) >= 0.0 then
-                result <- false
-            p <- p.next
-        result
+    // make sure we don't have other points inside the potential ear
+    let mutable p = c.next
+    let mutable result = true
+    while p =!= a && result do
+        if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && not (ax = p.x && ay = p.y) &&
+            pointInTriangle(ax, ay, bx, by, cx, cy, p.x, p.y) &&
+            area(p.prev, p, p.next) >= 0.0 then
+            result <- false
+        p <- p.next
+    result
 
 let internal isEarHashed(ear: Node, minX: float, minY: float, invSize: float) : bool =
+    // reflex check is hoisted into the earcutLinked caller (see isEar)
     let a = ear.prev
     let b = ear
     let c = ear.next
 
-    if area(a, b, c) >= 0.0 then false // reflex, can't be an ear
-    else
-        let ax = a.x
-        let bx = b.x
-        let cx = c.x
-        let ay = a.y
-        let by = b.y
-        let cy = c.y
+    let ax = a.x
+    let bx = b.x
+    let cx = c.x
+    let ay = a.y
+    let by = b.y
+    let cy = c.y
 
-        // triangle bbox
-        let x0 = min (min ax bx) cx
-        let y0 = min (min ay by) cy
-        let x1 = max (max ax bx) cx
-        let y1 = max (max ay by) cy
+    // triangle bbox
+    let x0 = min (min ax bx) cx
+    let y0 = min (min ay by) cy
+    let x1 = max (max ax bx) cx
+    let y1 = max (max ay by) cy
 
-        // z-order range for the current triangle bbox;
-        let minZ = zOrder(x0, y0, minX, minY, invSize)
-        let maxZ = zOrder(x1, y1, minX, minY, invSize)
+    // z-order range for the current triangle bbox;
+    let minZ = zOrder(x0, y0, minX, minY, invSize)
+    let maxZ = zOrder(x1, y1, minX, minY, invSize)
 
-        let mutable p = ear.prevZ
-        let mutable n = ear.nextZ
-        let mutable result = true
+    let mutable result = true
 
-        // look for points inside the triangle in both directions
-        while result && notNull p && p.z >= minZ && notNull n && n.z <= maxZ do
-            if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && p =!= a && p =!= c &&
-                pointInTriangleExceptFirst(ax, ay, bx, by, cx, cy, p.x, p.y) && area(p.prev, p, p.next) >= 0.0 then
-                result <- false
-            else
-                p <- p.prevZ
+    // look for points inside the triangle in decreasing z-order
+    let mutable p = ear.prevZ
+    while result && notNull p && p.z >= minZ do
+        if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && p =!= c && not (ax = p.x && ay = p.y) &&
+            pointInTriangle(ax, ay, bx, by, cx, cy, p.x, p.y) && area(p.prev, p, p.next) >= 0.0 then
+            result <- false
+        else
+            p <- p.prevZ
 
-            if result && notNull n && n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1 && n =!= a && n =!= c &&
-                pointInTriangleExceptFirst(ax, ay, bx, by, cx, cy, n.x, n.y) && area(n.prev, n, n.next) >= 0.0 then
-                result <- false
-            else if result then
-                n <- n.nextZ
+    // look for points in increasing z-order
+    let mutable n = ear.nextZ
+    while result && notNull n && n.z <= maxZ do
+        if n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1 && n =!= c && not (ax = n.x && ay = n.y) &&
+            pointInTriangle(ax, ay, bx, by, cx, cy, n.x, n.y) && area(n.prev, n, n.next) >= 0.0 then
+            result <- false
+        else
+            n <- n.nextZ
 
-        // look for remaining points in decreasing z-order
-        while result && notNull p && p.z >= minZ do
-            if p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1 && p =!= a && p =!= c &&
-                pointInTriangleExceptFirst(ax, ay, bx, by, cx, cy, p.x, p.y) && area(p.prev, p, p.next) >= 0.0 then
-                result <- false
-            else
-                p <- p.prevZ
-
-        // look for remaining points in increasing z-order
-        while result && notNull n && n.z <= maxZ do
-            if n.x >= x0 && n.x <= x1 && n.y >= y0 && n.y <= y1 && n =!= a && n =!= c &&
-                pointInTriangleExceptFirst(ax, ay, bx, by, cx, cy, n.x, n.y) && area(n.prev, n, n.next) >= 0.0 then
-                result <- false
-            else
-                n <- n.nextZ
-
-        result
+    result
 
 // go through all polygon nodes and cure small local self-intersections
 let internal cureLocalIntersections(start: Node, triangles: ResizeArray<int>) : Node =
     let mutable p = start
     let mutable start = start
+    let mutable cured = false
     let mutable continueLoop = true
     // do-while loop: execute once then check condition
     while continueLoop do
         let a = p.prev
         let b = p.next.next
 
-        if not (equals(a, b)) && intersects(a, p, p.next, b) && locallyInside(a, b) && locallyInside(b, a) then
+        if intersects(a, p, p.next, b, false) && locallyInside(a, b) && locallyInside(b, a) then
             triangles.Add(a.i)
             triangles.Add(p.i)
             triangles.Add(b.i)
@@ -455,15 +601,16 @@ let internal cureLocalIntersections(start: Node, triangles: ResizeArray<int>) : 
             removeNode(p.next)
 
             start <- b
-            p <- start
+            p <- b
+            cured <- true
 
         p <- p.next
         continueLoop <- p =!= start
 
-    filterPoints(p, Unchecked.defaultof<Node>)
+    if cured then filterPoints(p, p) else p
 
 // try splitting polygon into two and triangulate them independently
-let rec internal splitEarcut(start: Node, triangles: ResizeArray<int>, dim: int, minX: float, minY: float, invSize: float) : unit =
+let rec internal splitEarcut(start: Node, triangles: ResizeArray<int>, minX: float, minY: float, invSize: float) : unit =
     // look for a valid diagonal that divides the polygon into two
     let mutable a = start
     let mutable outerContinue = true
@@ -480,64 +627,62 @@ let rec internal splitEarcut(start: Node, triangles: ResizeArray<int>, dim: int,
                 c <- filterPoints(c, c.next)
 
                 // run earcut on each half
-                earcutLinked(a, triangles, dim, minX, minY, invSize, 0)
-                earcutLinked(c, triangles, dim, minX, minY, invSize, 0)
+                earcutLinked(a, triangles, minX, minY, invSize)
+                earcutLinked(c, triangles, minX, minY, invSize)
                 outerContinue <- false
                 innerContinue <- false
             else
                 b <- b.next
-                innerContinue <-  b =!= a.prev
+                innerContinue <- b =!= a.prev
 
         if outerContinue then
             a <- a.next
             outerContinue <- a =!= start
 
 // main ear slicing loop which triangulates a polygon (given as a linked list)
-and internal earcutLinked(ear: Node, triangles: ResizeArray<int>, dim: int, minX: float, minY: float, invSize: float, pass: int) : unit =
-    if isNull ear then ()
-    else
-        // interlink polygon nodes in z-order
-        if pass = 0 && invSize <> 0.0 then indexCurve(ear, minX, minY, invSize)
+and internal earcutLinked(ear: Node, triangles: ResizeArray<int>, minX: float, minY: float, invSize: float) : unit =
+    // interlink polygon nodes in z-order
+    if invSize <> 0.0 then indexCurve(ear, minX, minY, invSize)
 
-        let mutable ear = ear
-        let mutable stop = ear
-        let mutable continueLoop = true
+    let mutable ear = ear
+    let mutable stop = ear
+    let mutable cured = false
+    let mutable continueLoop = true
 
-        // iterate through ears, slicing them one by one
-        while continueLoop && ear.prev =!= ear.next do
-            let prev = ear.prev
-            let next = ear.next
+    // iterate through ears, slicing them one by one
+    while continueLoop && ear.prev =!= ear.next do
+        let prev = ear.prev
+        let next = ear.next
 
-            let isEarResult =
-                if invSize <> 0.0 then isEarHashed(ear, minX, minY, invSize)
-                else isEar(ear)
+        if area(prev, ear, next) < 0.0 &&
+            (if invSize <> 0.0 then isEarHashed(ear, minX, minY, invSize) else isEar(ear)) then
+            // cut off the triangle
+            triangles.Add(prev.i)
+            triangles.Add(ear.i)
+            triangles.Add(next.i)
 
-            if isEarResult then
-                triangles.Add(prev.i) // cut off the triangle
-                triangles.Add(ear.i)
-                triangles.Add(next.i)
+            removeNode(ear)
+            ear <- next
+            stop <- next
+        else
+            ear <- next
 
-                removeNode(ear)
-
-                // skipping the next vertex leads to less sliver triangles
-                ear <- next.next
-                stop <- next.next
-            else
-                ear <- next
-
-                // if we looped through the whole remaining polygon and can't find any more ears
-                if ear === stop then
-                    // try filtering points and slicing again
-                    if pass = 0 then
-                        earcutLinked(filterPoints(ear, Unchecked.defaultof<Node>), triangles, dim, minX, minY, invSize, 1)
-                    // if this didn't work, try curing all small self-intersections locally
-                    elif pass = 1 then
-                        ear <- cureLocalIntersections(filterPoints(ear, Unchecked.defaultof<Node>), triangles)
-                        earcutLinked(ear, triangles, dim, minX, minY, invSize, 2)
+            // if we looped through the whole remaining polygon and can't find any more ears
+            if ear === stop then
+                // try filtering collinear/coincident points and slicing again — repeat as long as
+                // filtering actually removes nodes, since each removal can expose new ears
+                filteredOut <- false
+                ear <- filterPoints(ear, ear)
+                if filteredOut then
+                    stop <- ear
+                elif not cured then
+                    // filtering is exhausted: cure small local self-intersections once, then retry
+                    ear <- cureLocalIntersections(ear, triangles)
+                    stop <- ear
+                    cured <- true
+                else
                     // as a last resort, try splitting the remaining polygon into two
-                    elif pass = 2 then
-                        splitEarcut(ear, triangles, dim, minX, minY, invSize)
-
+                    splitEarcut(ear, triangles, minX, minY, invSize)
                     continueLoop <- false
 
 let internal compareXYSlope(a: Node) (b: Node) : int =
@@ -551,13 +696,14 @@ let internal compareXYSlope(a: Node) (b: Node) : int =
             let bSlope = (b.next.y - b.y) / (b.next.x - b.x)
             result <- aSlope - bSlope
 
-    if result = 0.0 then 0
-    else if result > 0.0 then 1
-    else -1
+    if result > 0.0 then 1
+    elif result < 0.0 then -1
+    // NaN (equal points with a vertical edge making the slope infinite) must compare as equal:
+    // the JS sort spec coerces a NaN comparator result to 0, keeping the stable input order
+    else 0
 
 // David Eberly's algorithm for finding a bridge between hole and outer polygon
 let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
-    let mutable p = outerNode
     let hx = hole.x
     let hy = hole.y
     let mutable qx = -infinity
@@ -566,32 +712,43 @@ let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
     // find a segment intersected by a ray from the hole's leftmost point to the left;
     // segment's endpoint with lesser x will be potential connection point
     // unless they intersect at a vertex, then choose the vertex
-    if equals(hole, p) then p
+    if equals(hole, outerNode) then outerNode
     else
         let mutable earlyReturn = Unchecked.defaultof<Node>
         let mutable hasEarlyReturn = false
-        let mutable continueLoop = true
-        while continueLoop do
-            if equals(hole, p.next) then
-                earlyReturn <- p.next // hole touches outer vertex; connect to it directly
-                hasEarlyReturn <- true
-                continueLoop <- false
-            elif hy <= p.y && hy >= p.next.y && p.next.y <> p.y then
-                let x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y)
-                if x <= hx && x > qx then
-                    qx <- x
-                    m <- if p.x < p.next.x then p else p.next
-                    if x = hx then
-                        earlyReturn <- m // hole touches outer segment; pick leftmost endpoint
-                        hasEarlyReturn <- true
-                        continueLoop <- false
 
-                if continueLoop then
-                    p <- p.next
-                    if p === outerNode then continueLoop <- false
-            else
-                p <- p.next
-                if p === outerNode then continueLoop <- false
+        // scan blocks; skip any whose bbox can't hold a crossing that beats qx and lies left
+        // of hx (the prune Morton order can't express — explicit per-axis [minY,maxY]/[minX,maxX])
+        let mutable b = 0
+        let mutable g = 0
+        while not hasEarlyReturn && b < numBlocks do
+            if not (hy < blockBBox.[g + 1] || hy > blockBBox.[g + 3] || blockBBox.[g] > hx || blockBBox.[g + 2] <= qx) then
+                // ensure the walk's exclusive bound is live so we don't overrun into other blocks
+                let stop = liveBlockStop(b)
+
+                let mutable p = liveBlockHead(b)
+                let mutable continueLoop = true
+                // do-while loop: execute once then check condition
+                while continueLoop do
+                    if p.prev.next === p then // skip nodes removed by filterPoints (stale in the index)
+                        if equals(hole, p.next) then
+                            earlyReturn <- p.next
+                            hasEarlyReturn <- true
+                            continueLoop <- false
+                        elif hy <= p.y && hy >= p.next.y && p.next.y <> p.y then
+                            let x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y)
+                            if x <= hx && x > qx then
+                                qx <- x
+                                m <- if p.x < p.next.x then p else p.next
+                                if x = hx then
+                                    earlyReturn <- m // hole touches outer segment; pick leftmost endpoint
+                                    hasEarlyReturn <- true
+                                    continueLoop <- false
+                    if continueLoop then
+                        p <- p.next
+                        if p === stop then continueLoop <- false
+            b <- b + 1
+            g <- g + 4
 
         if hasEarlyReturn then earlyReturn
         elif isNull m then Unchecked.defaultof<Node>
@@ -600,28 +757,39 @@ let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
             // if there are no points found, we have a valid connection;
             // otherwise choose the point of the minimum angle with the ray as connection point
 
-            let stop = m
             let mx = m.x
             let my = m.y
+            let tminY = min hy my // the triangle's y span; x span is [mx, hx]
+            let tmaxY = max hy my
             let mutable tanMin = infinity
 
-            p <- m
+            // scan the same blocks; skip any whose bbox can't overlap the triangle's [mx,hx]×[tminY,tmaxY] box
+            let mutable b = 0
+            let mutable g = 0
+            while b < numBlocks do
+                if not (blockBBox.[g + 2] < mx || blockBBox.[g] > hx || blockBBox.[g + 3] < tminY || blockBBox.[g + 1] > tmaxY) then
+                    let stop = liveBlockStop(b)
 
-            let mutable continueLoop = true
-            // do-while loop: execute once then check condition
-            while continueLoop do
-                if hx >= p.x && p.x >= mx && hx <> p.x &&
-                    pointInTriangle((if hy < my then hx else qx), hy, mx, my, (if hy < my then qx else hx), hy, p.x, p.y) then
+                    let mutable p = liveBlockHead(b)
+                    let mutable continueLoop = true
+                    // do-while loop: execute once then check condition
+                    while continueLoop do
+                        if p.prev.next === p && hx >= p.x && p.x >= mx && hx <> p.x && // skip dead nodes
+                            pointInTriangle((if hy < my then hx else qx), hy, mx, my, (if hy < my then qx else hx), hy, p.x, p.y) then
 
-                    let tan = abs(hy - p.y) / (hx - p.x) // tangential
+                            let tan = abs(hy - p.y) / (hx - p.x) // tangential
 
-                    if locallyInside(p, hole) &&
-                        (tan < tanMin || (tan = tanMin && (p.x > m.x || (p.x = m.x && sectorContainsSector(m, p))))) then
-                        m <- p
-                        tanMin <- tan
+                            // if hole point sits on p's horizontal edge (T-junction touch): the bridge runs
+                            // along that edge — locallyInside rejects it as collinear, but it's valid
+                            if (locallyInside(p, hole) || (p.y = hy && p.next.y = hy && p.next.x > hx)) &&
+                                (tan < tanMin || (tan = tanMin && (p.x > m.x || (p.x = m.x && sectorContainsSector(m, p))))) then
+                                m <- p
+                                tanMin <- tan
 
-                p <- p.next
-                if p === stop then continueLoop <- false
+                        p <- p.next
+                        if p === stop then continueLoop <- false
+                b <- b + 1
+                g <- g + 4
 
             m
 
@@ -633,7 +801,14 @@ let internal eliminateHole(hole: Node, outerNode: Node) : Node =
     else
         let bridgeReverse = splitPolygon(bridge, hole)
 
-        // filter collinear points around the cuts
+        // index the merged-in segment before filtering: in ring order the splice runs
+        // bridge -> hole -> bridgeReverse -> bridge2 -> (bridge's old next), covering the
+        // hole's edges and both new slit edges. filterPoints below only drops collinear /
+        // coincident points, so these bboxes stay valid (conservative) supersets.
+        let bridge2 = bridgeReverse.next
+        indexSegment(bridge, bridge2.next)
+
+        // heal collinear/coincident points around the two new slit edges
         filterPoints(bridgeReverse, bridgeReverse.next) |> ignore
         filterPoints(bridge, bridge.next)
 
@@ -646,17 +821,26 @@ let internal eliminateHoles(data: array<float>, holeIndices: array<int>, outerNo
         let end_ = if i < holeIndices.Length - 1 then holeIndices.[i + 1] * dim else data.Length
         let list = linkedList(data, start, end_, dim, false)
         if list === list.next then
-            list.steiner <- true
+            steiners.Add(list) |> ignore
         queue.Add(getLeftmost(list))
 
     queue.Sort compareXYSlope
 
-    // process holes from left to right
+    // block-bbox index for findHoleBridge, grown append-only as holes merge (see notes
+    // above buildBlockIndex). Seed it with the outer ring, then append each merged hole.
+    buildBlockIndex(data.Length / dim, holeIndices.Length)
+    indexSegment(outerNode, outerNode)
+
+    // process holes from left to right; indexActive lets removeNode keep block bboxes live as
+    // filterPoints heals edges during merges (see growBlock)
+    indexActive <- true
     let mutable outerNode = outerNode
     for i = 0 to queue.Count - 1 do
         outerNode <- eliminateHole(queue.[i], outerNode)
+    indexActive <- false
 
-    outerNode
+    // collapse collinear/coincident points across the whole merged ring once before clipping
+    filterPoints(outerNode, outerNode)
 
 
 ///<summary> Triangulates a polygon with holes, given as flat array of numbers.</summary>
@@ -684,6 +868,8 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
     else
         let hasHoles =  not (obj.ReferenceEquals(holeIndices, null))  && holeIndices.Length > 0
         let outerLen = if hasHoles then holeIndices.[0] * dimensions else vertices.Length
+        if steiners.Count > 0 then steiners.Clear()
+
         let mutable outerNode = linkedList(vertices, 0, outerLen, dimensions, true)
 
         if isNull outerNode || outerNode.next === outerNode.prev then
@@ -717,7 +903,7 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
                 invSize <- max (maxX - minX) (maxY - minY)
                 invSize <- if invSize <> 0.0 then 32767.0 / invSize else 0.0
 
-            earcutLinked(outerNode, triangles, dimensions, minX, minY, invSize, 0)
+            earcutLinked(outerNode, triangles, minX, minY, invSize)
 
             triangles
 
@@ -846,23 +1032,170 @@ let flatten(data: float[][][])  =
     {|vertices = vertices.ToArray(); holes = holes.ToArray(); dimensions = dimensions|}
 
 
+// Reusable module-level scratch for refine():
+//   he        = twin half-edge of each edge, or -1 on the polygon boundary
+//   hTable    = open-addressing hash, slot -> half-edge index, valid iff hStamp[slot] = gen
+//   edgeStamp = pending-in-stack flag, cleared when the edge is popped
+let mutable internal edgeStack : int[] = Array.empty
+let mutable internal he : int[] = Array.empty
+let mutable internal hTable : int[] = Array.empty
+let mutable internal hStamp : int[] = Array.empty
+let mutable internal edgeStamp : int[] = Array.empty
+let mutable internal hMask = 0
+let mutable internal gen = 0
 
-open System.Collections.Generic
+let inline internal orient(ax: float, ay: float, bx: float, by: float, cx: float, cy: float) : float =
+    (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
 
+// Whether p is inside or exactly on the circumcircle of triangle (a, b, c). Sign is negated vs the
+// usual predicate to match earcut's CCW winding — the standard sign would build the anti-Delaunay
+// mesh. Cocircular quads are legal ties, so refine only flips when this returns false.
+let inline internal inCircle(ax: float, ay: float, bx: float, by: float, cx: float, cy: float, px: float, py: float) : bool =
+    let dx = ax - px
+    let dy = ay - py
+    let ex = bx - px
+    let ey = by - py
+    let fx = cx - px
+    let fy = cy - py
+    let ap = dx * dx + dy * dy
+    let bp = ex * ex + ey * ey
+    let cp = fx * fx + fy * fy
+    // A near-cocircular quad is a legal Delaunay tie, but roundoff can flag both an edge and its
+    // flip as illegal, cascading into an endless flip loop (#205) — so treat a determinant within
+    // a small margin of zero as a tie. The determinant's worst-case roundoff error is provably
+    // below 9e-16·(ap + bp + cp)² (Shewchuk-style bound), so the margin guarantees every executed
+    // flip is illegal in exact arithmetic, and Lawson flipping always terminates.
+    let s = ap + bp + cp
+    dx * (ey * cp - bp * fy) - dy * (ex * cp - bp * fx) + ap * (ex * fy - ey * fx) <= 1e-13 * s * s
 
-let inline arrayZeroCreateInt (len:int) : int [] =
-    #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
-        Fable.Core.JsInterop.emitJsExpr (len) "new Int32Array($0)"
-    #else
-        Array.zeroCreate<int> len
-    #endif
+// next half-edge within the same triangle
+let inline internal nextHE(e: int) : int =
+    e - e % 3 + (e + 1) % 3
 
-let inline arrayZeroCreateFloat (len:int) : float [] =
-    #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
-        Fable.Core.JsInterop.emitJsExpr (len) "new Float64Array($0)"
-    #else
-        Array.zeroCreate<float> len
-    #endif
+// Grow the scratch arrays on demand (like earcut's z-order arrays).
+let internal ensureScratch(n: int) : unit =
+    // edgeStack holds at most one entry per half-edge (edgeStamp dedups), so n is a safe cap —
+    // sizing it up front lets the cascade push without a bounds/grow check.
+    if edgeStack.Length < n then edgeStack <- arrayZeroCreateInt n
+    if he.Length < n then he <- arrayZeroCreateInt n
+    if edgeStamp.Length < n then edgeStamp <- arrayZeroCreateInt n
+    let mutable size = 1
+    while size < n * 4 do size <- size <<< 1 // power-of-two table, load factor <= 0.25
+    if hTable.Length < size then
+        hTable <- arrayZeroCreateInt size
+        hStamp <- arrayZeroCreateInt size
+    hMask <- size - 1
+
+///<summary>Refines a triangulation toward the constrained Delaunay triangulation by legalizing every
+/// interior edge in place with Lawson flips — maximizing the minimum angle and removing most
+/// slivers. An optional post-pass for the output of the earcut function, or any manifold
+/// triangle-index list indexing into coords. Adapted from delaunator's edge legalization.
+/// Uses non-robust predicates: float input is fine, and the worst case is a not-quite-Delaunay
+/// edge, never an invalid mesh.</summary>
+///<param name="triangles">Triangle indices, as returned by the earcut function; mutated in place.</param>
+///<param name="coords">The flat vertex coordinates passed to the earcut function.</param>
+///<param name="dim">The number of coordinates per vertex in coords: 2 if it is made of x and y coordinates only.</param>
+let refine(triangles: ResizeArray<int>, coords: array<float>, dim: int) : unit =
+    let t = triangles
+    let n = t.Count
+    if n >= 6 then
+        ensureScratch(n)
+        gen <- gen + 1 // bumping the generation logically empties the hash (no clearing)
+        Array.fill he 0 n (-1)
+
+        // Build half-edge twins with an undirected-edge hash; consumed slots mark linked pairs. As each
+        // pair is linked we seed the stack with one representative (s, the earlier-inserted edge) — this
+        // fuses the initial "push every interior edge" pass into the build, saving a full O(n) scan.
+        // edgeStamp is all-zero here (balanced push/pop leaves it clean) and each pair links once, so
+        // the seed write needs no dedup guard.
+        let mutable i = 0
+        for e = 0 to n - 1 do
+            let a = t.[e]
+            let b = t.[nextHE(e)]
+            let lo = if a < b then a else b
+            let hi = if a < b then b else a
+            let mutable h = (imul lo (int 0x9e3779b1u) ^^^ imul hi (int 0x85ebca6bu)) &&& hMask
+            let mutable searching = true
+            while searching && hStamp.[h] = gen do
+                let s = hTable.[h]
+                // s = -1 marks a consumed slot (a pair already linked) — skip past it
+                if s <> -1 then
+                    let sa = t.[s]
+                    let sb = t.[nextHE(s)]
+                    if (sa = lo && sb = hi) || (sa = hi && sb = lo) then
+                        he.[e] <- s // link, then consume the slot
+                        he.[s] <- e
+                        hTable.[h] <- -1
+                        edgeStamp.[s] <- 1 // seed the interior edge for the cascade
+                        edgeStack.[i] <- s
+                        i <- i + 1
+                        searching <- false
+                if searching then h <- (h + 1) &&& hMask
+            if hStamp.[h] <> gen then // first occurrence: insert
+                hTable.[h] <- e
+                hStamp.[h] <- gen
+
+        while i > 0 do
+            i <- i - 1
+            let a = edgeStack.[i]
+            edgeStamp.[a] <- 0
+            let b = he.[a]
+            if b <> -1 then
+                let a0 = a - a % 3
+                let b0 = b - b % 3
+                let ar = a0 + (a + 2) % 3
+                let al = a0 + (a + 1) % 3
+                let bl = b0 + (b + 2) % 3
+                let br = b0 + (b + 1) % 3
+                let p0 = t.[ar]
+                let pr = t.[a]
+                let pl = t.[al]
+                let p1 = t.[bl]
+
+                let x0 = coords.[p0 * dim]
+                let y0 = coords.[p0 * dim + 1]
+                let xr = coords.[pr * dim]
+                let yr = coords.[pr * dim + 1]
+                let xl = coords.[pl * dim]
+                let yl = coords.[pl * dim + 1]
+                let x1 = coords.[p1 * dim]
+                let y1 = coords.[p1 * dim + 1]
+
+                // Test inCircle first: most interior edges are already Delaunay (inCircle true → no flip),
+                // so this short-circuits before the two convexity orients on the common path. The quad must
+                // also be convex (both new triangles CCW) — flipping a reflex quad would push a triangle
+                // outside the polygon. Boundary/hole edges need no guard — they self-protect via he = -1.
+                if not (inCircle(x0, y0, xr, yr, xl, yl, x1, y1)) &&
+                    orient(x0, y0, xr, yr, x1, y1) > 0.0 && orient(x0, y0, x1, y1, xl, yl) > 0.0 then
+                    t.[a] <- p1
+                    t.[b] <- p0
+                    let hbl = he.[bl]
+                    let har = he.[ar]
+                    he.[a] <- hbl
+                    if hbl <> -1 then he.[hbl] <- a
+                    he.[b] <- har
+                    if har <> -1 then he.[har] <- b
+                    he.[ar] <- bl
+                    he.[bl] <- ar
+
+                    // re-check the quad's four outer edges; skip boundary edges (he = -1) and any
+                    // already queued (edgeStamp), which also keeps the stack bounded by n.
+                    if hbl <> -1 && edgeStamp.[a] = 0 then
+                        edgeStamp.[a] <- 1
+                        edgeStack.[i] <- a
+                        i <- i + 1
+                    if har <> -1 && edgeStamp.[b] = 0 then
+                        edgeStamp.[b] <- 1
+                        edgeStack.[i] <- b
+                        i <- i + 1
+                    if he.[al] <> -1 && edgeStamp.[al] = 0 then
+                        edgeStamp.[al] <- 1
+                        edgeStack.[i] <- al
+                        i <- i + 1
+                    if he.[br] <> -1 && edgeStamp.[br] = 0 then
+                        edgeStamp.[br] <- 1
+                        edgeStack.[i] <- br
+                        i <- i + 1
 
 
 ///<summary> Triangulates a polygon with holes, given as ResizeArray flat X and Y coordinates.
