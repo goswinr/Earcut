@@ -19,7 +19,7 @@ https://github.com/mapbox/earcut
 
 ## Status
 
-Stable for .NET 4.7 and .NET 6.0 and JS via Fable.
+Stable for .NET Standard 2.0 and JS via Fable.
 
 v3.2.3 ported to F# on 2026-07-12
 
@@ -263,7 +263,7 @@ Calls into the `Earcut` module are therefore **not thread-safe** - do not triang
 concurrently from multiple threads.
 
 
-## Build for .NET 4.7 and 6.0
+## Build for .NET Standard 2.0
 
 `dotnet build`
 

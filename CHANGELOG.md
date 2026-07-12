@@ -10,8 +10,10 @@ while the last digits indicate the release number of this F# port.
 
 ## [Unreleased]
 
+
 ## [3.2.31] - 2026-07-12
 ### Changed
+- Target .NET Standard 2.0 only, replacing the .NET Framework 4.7.2 and .NET 6.0 targets
 - Port of Mapbox Earcut version 3.2.3 (upstream versions 3.1.0 through 3.2.3)
 - Much faster hole elimination via a block-bbox spatial index for hole bridge search
 - Z-order sorting switched from linked-list merge sort to insertion/radix sort over arrays
