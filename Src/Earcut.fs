@@ -130,20 +130,18 @@ let internal indexSegment(head: Node, stop: Node) : unit =
         let b = numBlocks
         numBlocks <- numBlocks + 1
         blockHead.[b] <- p
-        let mutable minX = infinity
-        let mutable minY = infinity
-        let mutable maxX = -infinity
-        let mutable maxY = -infinity
+        // seed from the block's first point, so the inner loop only has to expand for c:
+        // each iteration's p is the previous iteration's c, already covered (mapbox/earcut#207)
+        let mutable minX = p.x
+        let mutable minY = p.y
+        let mutable maxX = p.x
+        let mutable maxY = p.y
         let mutable k = 0
         let mutable continueInner = true
         // do-while loop: execute once then check condition
         while continueInner do
             let c = p.next // edge p->c; bbox must bound both endpoints
             p.z <- b // reuse z as the owning block during eliminateHoles (see growBlock)
-            if p.x < minX then minX <- p.x
-            if p.x > maxX then maxX <- p.x
-            if p.y < minY then minY <- p.y
-            if p.y > maxY then maxY <- p.y
             if c.x < minX then minX <- c.x
             if c.x > maxX then maxX <- c.x
             if c.y < minY then minY <- c.y

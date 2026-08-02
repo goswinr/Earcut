@@ -9,6 +9,9 @@ The first three digits of the version number (e.g. `3.0.2`) correspond to the or
 while the last digits indicate the release number of this F# port.
 
 ## [Unreleased]
+### Changed
+- Removed a redundant per-iteration bounding box expansion in the hole-bridge block index
+  (upstream [mapbox/earcut#207](https://github.com/mapbox/earcut/issues/207)); triangulation results are unchanged
 
 
 ## [3.2.31] - 2026-07-12
