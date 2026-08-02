@@ -15,6 +15,11 @@ trailing digits are the F# port's release number. See [CHANGELOG.md](CHANGELOG.m
 derives the package version from it via `Ionide.KeepAChangelog.Tasks`, so add a changelog entry
 under a new version heading when releasing.
 
+Changelog gotcha: `Ionide.KeepAChangelog.Tasks` 0.3.3 crashes (`MSB4018` /
+`ArgumentOutOfRangeException` in `parseUnreleasedText`) on a bullet with an indented
+continuation line - it reads the indent as a nested sub-item. This fails `dotnet build` and
+therefore `dotnet fable` too. Keep every changelog bullet on a single line; inline links are fine.
+
 ## Commands
 
 ```sh
@@ -31,6 +36,12 @@ commented out in CI; the script can also be run directly with `dotnet fsi Test/t
 
 There is no "run a single test" runner - tests are driven by `runTest`/fixture loops inside
 `test.fsx`. To isolate one case, edit the `fixtureIds` loop or comment out `runTest` calls.
+
+In Claude Code on the web the container has Node but no .NET SDK, so
+[.claude/hooks/session-start.sh](.claude/hooks/session-start.sh) installs SDK 10 into
+`$HOME/.dotnet`, runs `dotnet tool restore`/`restore` and then `dotnet fable`. It runs
+asynchronously, so at the very start of a session `dotnet` may not be on `PATH` yet - if a
+command fails with `dotnet: command not found`, wait and retry rather than reinstalling.
 
 ## Tests and fixtures
 
