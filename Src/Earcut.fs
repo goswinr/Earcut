@@ -5,6 +5,7 @@
 // https://github.com/mapbox/earcut/blob/15928aef4dc8af0055186d17757da71940aff978/src/earcut.js
 
 // v3.2.3 from 2026-07-01
+// Includes the deviation fix from upstream commit 0302a7564198774d52d8763aacaf6c0f453f6f16 (2026-09-04).
 module Earcut
 
 open System.Collections.Generic
@@ -1000,7 +1001,23 @@ let deviation(vertices: array<float>, holeIndices: array<int>, dim: int, triangl
             (vertices.[a] - vertices.[b]) * (vertices.[c + 1] - vertices.[a + 1]))
         i <- i + 3
 
-    if polygonArea = 0.0 && trianglesArea = 0.0 then 0.0
+    if trianglesArea = 0.0 then
+        // https://github.com/mapbox/earcut/commit/0302a7564198774d52d8763aacaf6c0f453f6f16
+        // with no triangles, a polygon area within shoelace roundoff of zero (which scales with the
+        // squared coordinate magnitude) means the input was degenerate rather than mistriangulated
+
+        // Number.EPSILON (2^-52), is tottally not the same as System.Double.Epsilon!!  for parity with upstream JS.
+        let machineEpsilon = 2.220446049250313e-16
+        let mutable maxCoordinate = 0.0
+        let mutable i = 0
+        while i < vertices.Length do
+            maxCoordinate <- max maxCoordinate (abs(vertices.[i]))
+            maxCoordinate <- max maxCoordinate (abs(vertices.[i + 1]))
+            i <- i + dim
+        if abs(polygonArea) <= float vertices.Length * maxCoordinate * maxCoordinate * machineEpsilon then
+            0.0
+        else
+            1.0
     else abs((trianglesArea - polygonArea) / polygonArea)
 
 

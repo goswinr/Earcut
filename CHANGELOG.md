@@ -15,6 +15,12 @@ while the last digits indicate the release number of this F# port.
 - `.claude/hooks/session-start.sh`: a SessionStart hook that installs the .NET SDK, the pinned Fable and fsdocs tools and runs `dotnet fable`, so builds and tests work in Claude Code on the web. Development only, it is not part of the published package.
 
 
+## [3.2.32] - 2026-09-07
+### Fixed
+- Avoid false-positive deviation for degenerate collinear inputs with shoelace roundoff, porting Mapbox Earcut commit [0302a75](https://github.com/mapbox/earcut/commit/0302a7564198774d52d8763aacaf6c0f453f6f16).
+### Added
+- Regression coverage for degenerate and zero-area deviation handling.
+
 ## [3.2.31] - 2026-07-12
 ### Changed
 - Target .NET Standard 2.0 only, replacing the .NET Framework 4.7.2 and .NET 6.0 targets
@@ -68,6 +74,7 @@ while the last digits indicate the release number of this F# port.
 
 
 
+[3.2.32]: https://github.com/goswinr/Earcut/compare/3.2.31...3.2.32
 [3.2.31]: https://github.com/goswinr/Earcut/compare/3.0.24...3.2.31
 [3.0.24]: https://github.com/goswinr/Earcut/compare/3.0.23...3.0.24
 [3.0.23]: https://github.com/goswinr/Earcut/compare/3.0.22...3.0.23

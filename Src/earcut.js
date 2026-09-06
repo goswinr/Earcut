@@ -4,6 +4,7 @@
 // https://github.com/mapbox/earcut/blob/15928aef4dc8af0055186d17757da71940aff978/src/earcut.js
 
 // v3.2.3 from 2026-07-01
+// Includes the deviation fix from upstream commit 0302a7564198774d52d8763aacaf6c0f453f6f16 (2026-09-04).
 
 
 /**
@@ -839,8 +840,14 @@ export function deviation(data, holeIndices, dim, triangles) {
             (data[a] - data[b]) * (data[c + 1] - data[a + 1]));
     }
 
-    return polygonArea === 0 && trianglesArea === 0 ? 0 :
-        Math.abs((trianglesArea - polygonArea) / polygonArea);
+    if (trianglesArea === 0) {
+        let max = 0;
+        for (let i = 0; i < data.length; i += dim) {
+            max = Math.max(max, Math.abs(data[i]), Math.abs(data[i + 1]));
+        }
+        return Math.abs(polygonArea) <= data.length * max * max * Number.EPSILON ? 0 : 1;
+    }
+    return Math.abs((trianglesArea - polygonArea) / polygonArea);
 }
 
 /** @param {ArrayLike<number>} data @param {number} start @param {number} end @param {number} dim @returns {number} */

@@ -3,8 +3,7 @@
 
 #r "nuget: Newtonsoft.Json, 13.0.4"
 
-//#load "../Src/Earcut.fs"
-#load "D:/Git/_Euclid_/Earcut/Src/Earcut.fs"
+#load "../Src/Earcut.fs"
 
 open System
 open System.IO
@@ -92,6 +91,21 @@ runTest "indices-3d" (fun () ->
 runTest "empty" (fun () ->
     let indices = earcut([||], null, 2)
     assertDeepEqual (ResizeArray<int>()) indices "empty"
+)
+
+runTest "deviation zero-area handling" (fun () ->
+    let collinear = [| 0.1; 0.2; 1.3; 2.6; 2.5; 5.0; 3.7; 7.4 |]
+    let collinearTriangles = earcut(collinear, null, 2)
+    let valid = [| 0.0; 0.0; 1.0; 0.0; 1.0; 1.0; 0.0; 1.0 |]
+    let validTriangles = ResizeArray([0; 1; 2; 0; 2; 3])
+    let zIgnored = [| 0.0; 0.0; 1e300; 1.0; 0.0; 1e300; 1.0; 1.0; 1e300; 0.0; 1.0; 1e300 |]
+    assertDeepEqual (ResizeArray<int>()) collinearTriangles "deviation collinear input has no triangles" &&
+    assertEqual 0.0 (deviation(collinear, null, 2, collinearTriangles)) "deviation collinear input is zero" &&
+    assertEqual 0.0 (deviation([||], null, 2, ResizeArray<int>())) "deviation empty input is zero" &&
+    assertEqual 1.0 (deviation(valid, null, 2, ResizeArray<int>())) "deviation nondegenerate input without triangles is one" &&
+    assertEqual 0.0 (deviation(valid, null, 2, validTriangles)) "deviation valid triangulation is zero" &&
+    assertEqual 0.5 (deviation(valid, null, 2, ResizeArray([0; 1; 2]))) "deviation incomplete triangulation is nonzero" &&
+    assertEqual 1.0 (deviation(zIgnored, null, 3, ResizeArray<int>())) "deviation ignores Z coordinates for tolerance"
 )
 
 // Test fixtures with rotations
@@ -536,5 +550,4 @@ if failCount = 0 then
     printfn $"🎉 All tests passed!"
     0
 else
-    printfn "⚠️  Some tests failed"
-    1
+    failwith $"⚠️  Some tests failed: {failCount}"
