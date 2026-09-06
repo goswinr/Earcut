@@ -8,20 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The first three digits of the version number (e.g. `3.0.2`) correspond to the original Mapbox Earcut version,
 while the last digits indicate the release number of this F# port.
 
-## [Unreleased]
+## [3.2.32] - 2026-09-06
 ### Changed
 - On .NET, `earcut`, its convenience wrappers and `refine` are thread-safe again: the reusable scratch buffers now live in a per-thread `Workspace` instead of module-level mutable state. Fable/JS keeps one workspace per JS context. This reverts the thread-safety caveat introduced in 3.2.31.
 - Removed a redundant per-iteration bounding box expansion in the hole-bridge block index, see [mapbox/earcut#207](https://github.com/mapbox/earcut/issues/207). Triangulation results are unchanged.
 ### Added
 - Regression test that runs `earcut` and `refine` concurrently on multiple threads and compares indices element-for-element against sequential results.
 - `.claude/hooks/session-start.sh`: a SessionStart hook that installs the .NET SDK, the pinned Fable and fsdocs tools and runs `dotnet fable`, so builds and tests work in Claude Code on the web. Development only, it is not part of the published package.
-
-
-## [3.2.32] - 2026-09-07
+- Regression coverage for degenerate and zero-area deviation handling.
 ### Fixed
 - Avoid false-positive deviation for degenerate collinear inputs with shoelace roundoff, porting Mapbox Earcut commit [0302a75](https://github.com/mapbox/earcut/commit/0302a7564198774d52d8763aacaf6c0f453f6f16).
-### Added
-- Regression coverage for degenerate and zero-area deviation handling.
+
 
 ## [3.2.31] - 2026-07-12
 ### Changed
@@ -76,6 +73,7 @@ while the last digits indicate the release number of this F# port.
 
 
 
+[3.2.33]: https://github.com/goswinr/Earcut/compare/3.2.32...3.2.33
 [3.2.32]: https://github.com/goswinr/Earcut/compare/3.2.31...3.2.32
 [3.2.31]: https://github.com/goswinr/Earcut/compare/3.0.24...3.2.31
 [3.0.24]: https://github.com/goswinr/Earcut/compare/3.0.23...3.0.24
