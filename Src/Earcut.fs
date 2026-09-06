@@ -4,8 +4,13 @@
 
 // https://github.com/mapbox/earcut/blob/15928aef4dc8af0055186d17757da71940aff978/src/earcut.js
 
+
 // v3.2.3 from 2026-07-01
+
 // Includes the deviation fix from upstream commit 0302a7564198774d52d8763aacaf6c0f453f6f16 (2026-09-04).
+// https://github.com/mapbox/earcut/blob/562aeea1471737af723b435ec16c2e40444cc355/src/earcut.js
+
+
 module Earcut
 
 open System.Collections.Generic
