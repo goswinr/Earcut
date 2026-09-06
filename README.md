@@ -257,10 +257,14 @@ Earcut.validate(vertices, holes, dimensions)
 
 ## Thread safety
 
-Since v3.2.3, and mirroring the upstream JS implementation, this library keeps reusable scratch
-state at module level (for the hole-bridge spatial index, the z-order sort and `refine` buffers). <br>
-Calls into the `Earcut` module are therefore **not thread-safe** - do not triangulate
-concurrently from multiple threads.
+On .NET, calls to `earcut`, its convenience wrappers, and `refine` are **thread-safe**:
+each thread caches its own internal `Workspace` containing the reusable scratch buffers.
+A workspace must never be shared between threads. Buffers grow on demand and are reused
+by subsequent calls on the same thread.
+
+Input collections must not be modified while a call is using them. Since `refine` mutates
+its triangle list in place, concurrent calls must use separate triangle lists.
+Fable/JavaScript uses one workspace per JS context, matching its synchronous execution model.
 
 
 ## Build for .NET Standard 2.0

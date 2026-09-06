@@ -537,6 +537,40 @@ runTest "block-index-collinear" (fun () ->
     ok
 )
 
+#if !FABLE_COMPILER
+// Exercise every scratch buffer on dedicated threads, including growth and reuse with
+// different polygon sizes. Compare exact indices against sequential results for both APIs.
+runTest "concurrent triangulation and refinement" (fun () ->
+    let cases =
+        [| "steiner"; "earcut"; "filtered-bridge-jhl"; "water"; "bad-diagonals" |]
+        |> Array.map (fun id ->
+            let data = readJson<float[][][]> (sprintf "fixtures/%s.json" id) |> flatten
+            let triangles = earcut(data.vertices, data.holes, data.dimensions)
+            let expected = triangles.ToArray()
+            refine(triangles, data.vertices, data.dimensions)
+            {| id = id; data = data; expected = expected; refined = triangles.ToArray() |})
+    let errors = System.Collections.Concurrent.ConcurrentQueue<exn>()
+    use start = new System.Threading.Barrier(4)
+    let threads = Array.init 4 (fun worker ->
+        System.Threading.Thread(System.Threading.ThreadStart(fun () ->
+            try
+                start.SignalAndWait() |> ignore
+                for iteration = 0 to 99 do
+                    let case = cases.[(iteration + worker) % cases.Length]
+                    let data = case.data
+                    let triangles = earcut(data.vertices, data.holes, data.dimensions)
+                    if triangles.ToArray() <> case.expected then
+                        failwithf "Concurrent earcut differs for %s" case.id
+                    refine(triangles, data.vertices, data.dimensions)
+                    if triangles.ToArray() <> case.refined then
+                        failwithf "Concurrent refine differs for %s" case.id
+            with ex -> errors.Enqueue ex)))
+    for thread in threads do thread.Start()
+    for thread in threads do thread.Join()
+    assertOk errors.IsEmpty (sprintf "concurrent calls match sequential results: %A" (errors.ToArray()))
+)
+#endif
+
 // Print summary
 printfn ""
 printfn "=================="

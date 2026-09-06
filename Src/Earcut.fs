@@ -15,11 +15,6 @@ module Earcut
 
 open System.Collections.Generic
 
-// NOTE: mirroring the upstream JS, this port keeps reusable scratch state at module level
-// (the steiner-point set, the hole-bridge block index, and the sort and refine buffers),
-// so calls into this module are NOT thread-safe. Do not triangulate concurrently from
-// multiple threads.
-
 /// A vertex in a circular doubly linked list representing a polygon ring.
 /// prev/next are always linked (set immediately after createNode);
 /// prevZ/nextZ are the z-order list links and are null at the ends.
@@ -86,14 +81,6 @@ let inline internal imul (a: int) (b: int) : int =
         a * b
     #endif
 
-// single-vertex holes to preserve through filterPoints (steiner points); kept off the Node
-// shape since they're rare - the empty-set fast path means non-steiner inputs pay nothing
-let internal steiners = HashSet<Node>(HashIdentity.Reference)
-
-// set by filterPoints whenever it removes at least one node; read by earcutLinked's stall
-// handler to decide whether another clip pass is worth attempting before the costlier stages
-let mutable internal filteredOut = false
-
 // Block-bbox index for findHoleBridge (issue #183): one [minX,minY,maxX,maxY] bbox per K
 // consecutive ring edges, in a flat float array, so the leftward-ray scan can skip whole
 // blocks in O(1) instead of walking the entire merged ring. Grown append-only - the outer
@@ -108,27 +95,95 @@ let mutable internal filteredOut = false
 [<Literal>]
 let internal K = 16 // edges per block
 
-let mutable internal blockBBox : float[] = Array.empty // [minX,minY,maxX,maxY] per block
-let mutable internal numBlocks = 0
-let mutable internal blockHead : Node[] = Array.empty // first node of each block's segment
-let mutable internal blockStop : Node[] = Array.empty // node just past each block's segment (exclusive walk bound)
+/// All reusable scratch state for one triangulation/refinement call, cached per-thread on .NET.
+/// A single Workspace instance must never be used by more than one thread at the same time;
+/// see the "Thread safety" section in README.md.
+[<NoComparison; NoEquality>]
+type internal Workspace = {
+    // single-vertex holes to preserve through filterPoints (steiner points); kept off the Node
+    // shape since they're rare - the empty-set fast path means non-steiner inputs pay nothing
+    steiners: HashSet<Node>
 
-// true only while eliminateHoles merges holes, so removeNode keeps the block index live (growBlock)
-let mutable internal indexActive = false
+    // set by filterPoints when it removes nodes; read by earcutLinked's stall handler
+    mutable filteredOut: bool
 
-let internal buildBlockIndex(maxNodes: int, numHoles: int) : unit =
+    // see the block-bbox index comment above K
+    mutable blockBBox: float[] // [minX,minY,maxX,maxY] per block
+    mutable numBlocks: int
+    mutable blockHead: Node[] // first node of each block's segment
+    mutable blockStop: Node[] // node just past each block's segment (exclusive walk bound)
+    // true only while eliminateHoles merges holes, so filterPoints keeps the block index live
+    mutable indexActive: bool
+
+    // radix sort buffers: node references and parallel z-values, plus an 8-bit histogram
+    mutable sortArr: Node[]
+    mutable sortBuf: Node[]
+    mutable zArr: int[]
+    mutable zBuf: int[]
+    counts: int[]
+
+    // Reusable scratch for refine():
+    //   he        = twin half-edge of each edge, or -1 on the polygon boundary
+    //   hTable    = open-addressing hash, slot -> half-edge index, valid iff hStamp[slot] = gen
+    //   edgeStamp = pending-in-stack flag, cleared when the edge is popped
+    mutable edgeStack: int[]
+    mutable he: int[]
+    mutable hTable: int[]
+    mutable hStamp: int[]
+    mutable edgeStamp: int[]
+    mutable hMask: int
+    mutable gen: int
+    }
+
+let internal createWorkspace() : Workspace = {
+    steiners = HashSet<Node>(HashIdentity.Reference)
+    filteredOut = false
+    blockBBox = Array.empty
+    numBlocks = 0
+    blockHead = Array.empty
+    blockStop = Array.empty
+    indexActive = false
+    sortArr = Array.empty
+    sortBuf = Array.empty
+    zArr = Array.empty
+    zBuf = Array.empty
+    counts = arrayZeroCreateInt 256
+    edgeStack = Array.empty
+    he = Array.empty
+    hTable = Array.empty
+    hStamp = Array.empty
+    edgeStamp = Array.empty
+    hMask = 0
+    gen = 0
+    }
+
+#if FABLE_COMPILER
+let private workspace = createWorkspace()
+let internal getWorkspace() = workspace
+#else
+let private workspace = new System.Threading.ThreadLocal<Workspace>(fun () -> createWorkspace())
+let internal getWorkspace() = workspace.Value
+#endif
+
+let internal buildBlockIndex(ws: Workspace, maxNodes: int, numHoles: int) : unit =
+    let blockBBox = ws.blockBBox
+    let blockHead = ws.blockHead
     // upper bound: every input node indexed once, +2 bridge nodes per hole, plus a partial
     // trailing block per appended segment (outer ring + one per hole)
     let maxBlocks = (maxNodes + 2 * numHoles + K - 1) / K + numHoles + 2
-    if blockBBox.Length < maxBlocks * 4 then blockBBox <- arrayZeroCreateFloat (maxBlocks * 4)
+    if blockBBox.Length < maxBlocks * 4 then ws.blockBBox <- arrayZeroCreateFloat (maxBlocks * 4)
     if blockHead.Length < maxBlocks then
-        blockHead <- Array.zeroCreate maxBlocks
-        blockStop <- Array.zeroCreate maxBlocks
-    numBlocks <- 0
+        ws.blockHead <- Array.zeroCreate maxBlocks
+        ws.blockStop <- Array.zeroCreate maxBlocks
+    ws.numBlocks <- 0
 
 // index the ring run head..stop (exclusive) as ceil(len / K) blocks; head === stop means
 // the whole ring. each block's bbox covers both endpoints of every edge it owns.
-let internal indexSegment(head: Node, stop: Node) : unit =
+let internal indexSegment(ws: Workspace, head: Node, stop: Node) : unit =
+    let blockBBox = ws.blockBBox
+    let blockHead = ws.blockHead
+    let blockStop = ws.blockStop
+    let mutable numBlocks = ws.numBlocks
     let mutable p = head
     let mutable continueOuter = true
     // do-while loop: execute once then check condition
@@ -162,11 +217,12 @@ let internal indexSegment(head: Node, stop: Node) : unit =
         blockBBox.[g + 2] <- maxX
         blockBBox.[g + 3] <- maxY
         if p === stop then continueOuter <- false
+    ws.numBlocks <- numBlocks
 
 // when filterPoints heals an edge head->tail (removing the collinear node between them), the
 // healed edge can extend past head's frozen block bbox if its old far endpoint lived in another
 // block; grow head's block bbox to cover tail so the leftward-ray prune can't false-skip it.
-let inline internal growBlock(head: Node, tail: Node) : unit =
+let inline internal growBlock(blockBBox: float[], head: Node, tail: Node) : unit =
     let g = head.z * 4
     if tail.x < blockBBox.[g] then blockBBox.[g] <- tail.x
     if tail.y < blockBBox.[g + 1] then blockBBox.[g + 1] <- tail.y
@@ -174,7 +230,7 @@ let inline internal growBlock(head: Node, tail: Node) : unit =
     if tail.y > blockBBox.[g + 3] then blockBBox.[g + 3] <- tail.y
 
 // ensure the walk's exclusive bound is live so we don't overrun into other blocks
-let internal liveBlockStop(b: int) : Node =
+let internal liveBlockStop(blockStop: Node[], b: int) : Node =
     let mutable stop = blockStop.[b]
     while stop.prev.next =!= stop do stop <- stop.next
     blockStop.[b] <- stop
@@ -184,7 +240,7 @@ let internal liveBlockStop(b: int) : Node =
 // live node so the walk doesn't start on (and immediately terminate at) a dead node. For the
 // single full-ring seed block (head === stop) the same forward advance keeps them equal, so the
 // do-while still laps the whole ring instead of collapsing to an empty walk.
-let internal liveBlockHead(b: int) : Node =
+let internal liveBlockHead(blockHead: Node[], b: int) : Node =
     let mutable head = blockHead.[b]
     while head.prev.next =!= head do head <- head.next
     blockHead.[b] <- head
@@ -210,8 +266,8 @@ let inline internal removeNode (p: Node) : unit =
     if notNull p.prevZ then p.prevZ.nextZ <- p.nextZ
     if notNull p.nextZ then p.nextZ.prevZ <- p.prevZ
 
-    // keep the hole-bridge index's block bboxes covering the healed prev->next edge
-    if indexActive then growBlock(p.prev, p.next)
+    // The indexActive/growBlock check lives in filterPoints, which handles all removals
+    // during hole merging, so removeNode does not need scratch state.
 
 // signed area of a triangle
 let inline internal area (p: Node, q: Node, r: Node) : float =
@@ -362,19 +418,9 @@ let inline internal getLeftmost(start: Node) : Node =
 let inline internal sectorContainsSector(m: Node, p: Node) : bool =
     area(m.prev, m, p.prev) < 0.0 && area(p.next, m, m.next) < 0.0
 
-// scratch buffers reused across calls and grown on demand: two node-ref arrays that
-// ping-pong during the radix passes, plus parallel z-value arrays so the passes read
-// z from contiguous memory instead of dereferencing each node. 256-entry histogram for
-// 8-bit digits; the small histogram keeps per-call setup cheap (most rings are short)
-let mutable internal sortArr : Node[] = Array.empty
-let mutable internal sortBuf : Node[] = Array.empty
-let mutable internal zArr : int[] = Array.empty
-let mutable internal zBuf : int[] = Array.empty
-let internal counts = arrayZeroCreateInt 256
-
 // one LSD radix pass: stably scatter the first n nodes (and their z) from src to dst,
 // bucketed by the 8-bit digit of z at the given bit shift
-let internal radixPass(n: int, src: Node[], srcZ: int[], dst: Node[], dstZ: int[], shift: int) : unit =
+let internal radixPass(counts: int[], n: int, src: Node[], srcZ: int[], dst: Node[], dstZ: int[], shift: int) : unit =
     Array.fill counts 0 256 0
     for i = 0 to n - 1 do
         let d = (srcZ.[i] >>> shift) &&& 0xff
@@ -395,7 +441,16 @@ let internal radixPass(n: int, src: Node[], srcZ: int[], dst: Node[], dstZ: int[
 
 // sort the first n nodes of sortArr by z, in place: insertion sort for small n (cheaper
 // than histogram setup), else LSD radix in four 8-bit passes (covering z's 30 bits)
-let internal sortNodes(n: int) : unit =
+let internal sortNodes(ws: Workspace, n: int) : unit =
+    if n > 32 && ws.zArr.Length < n then
+        ws.zArr <- arrayZeroCreateInt n
+        ws.zBuf <- arrayZeroCreateInt n
+        ws.sortBuf <- Array.zeroCreate n
+    let sortArr = ws.sortArr
+    let counts = ws.counts
+    let zArr = ws.zArr
+    let zBuf = ws.zBuf
+    let sortBuf = ws.sortBuf
     if n <= 32 then
         for i = 1 to n - 1 do
             let node = sortArr.[i]
@@ -406,21 +461,18 @@ let internal sortNodes(n: int) : unit =
                 j <- j - 1
             sortArr.[j + 1] <- node
     else
-        if zArr.Length < n then
-            zArr <- arrayZeroCreateInt n
-            zBuf <- arrayZeroCreateInt n
-            sortBuf <- Array.zeroCreate n
         for i = 0 to n - 1 do
             zArr.[i] <- sortArr.[i].z
 
         // even pass count lands the sorted result back in sortArr
-        radixPass(n, sortArr, zArr, sortBuf, zBuf, 0)
-        radixPass(n, sortBuf, zBuf, sortArr, zArr, 8)
-        radixPass(n, sortArr, zArr, sortBuf, zBuf, 16)
-        radixPass(n, sortBuf, zBuf, sortArr, zArr, 24)
+        radixPass(counts, n, sortArr, zArr, sortBuf, zBuf, 0)
+        radixPass(counts, n, sortBuf, zBuf, sortArr, zArr, 8)
+        radixPass(counts, n, sortArr, zArr, sortBuf, zBuf, 16)
+        radixPass(counts, n, sortBuf, zBuf, sortArr, zArr, 24)
 
 // interlink polygon nodes in z-order: collect into an array, sort by z, relink
-let internal indexCurve(start: Node, minX: float, minY: float, invSize: float) : unit =
+let internal indexCurve(ws: Workspace, start: Node, minX: float, minY: float, invSize: float) : unit =
+    let mutable sortArr = ws.sortArr
     let mutable p = start
     let mutable n = 0
     let mutable continueLoop = true
@@ -438,7 +490,8 @@ let internal indexCurve(start: Node, minX: float, minY: float, invSize: float) :
         p <- p.next
         if p === start then continueLoop <- false
 
-    sortNodes(n)
+    ws.sortArr <- sortArr
+    sortNodes(ws, n)
 
     let mutable prev = Unchecked.defaultof<Node>
     for i = 0 to n - 1 do
@@ -484,7 +537,11 @@ let internal linkedList(data: array<float>, start: int, end_: int, dim: int, clo
 // equals start we sweep the whole ring, lapping until nothing is removable (the fixpoint the
 // clipper needs). With a distinct ende we heal only the dirty window around a bridge/diagonal
 // cut, stopping at ende rather than lapping - O(window) instead of O(ring).
-let internal filterPoints(start: Node, ende: Node) : Node =
+let internal filterPoints(ws: Workspace, start: Node, ende: Node) : Node =
+    let steiners = ws.steiners
+    let indexActive = ws.indexActive
+    let blockBBox = ws.blockBBox
+    let mutable filteredOut = ws.filteredOut
     let full = ende === start
 
     let mutable ende = ende
@@ -499,6 +556,10 @@ let internal filterPoints(start: Node, ende: Node) : Node =
             if full || p === ende then ende <- p.prev // pull the stop bound back past the removal
             filteredOut <- true
             removeNode(p)
+            // keep the hole-bridge index's block bboxes covering the healed prev->next edge
+            // indexActive is only true during hole merging, when all removals go through
+            // filterPoints, so this check lives here to keep removeNode independent of scratch state.
+            if indexActive then growBlock(blockBBox, p.prev, p.next)
             p <- p.prev         // re-check the predecessor
             again <- true
         elif full || p =!= ende then
@@ -506,7 +567,14 @@ let internal filterPoints(start: Node, ende: Node) : Node =
             again <- not full   // local heal: keep looping until the sweep reaches ende
         continueLoop <- again || p =!= ende
 
+    ws.filteredOut <- filteredOut
     ende
+
+// Return null when filtering leaves the ring unchanged, for the clipper's stall handler.
+let internal filterPointsIfChanged(ws: Workspace, start: Node) : Node =
+    ws.filteredOut <- false
+    let filtered = filterPoints(ws, start, start)
+    if ws.filteredOut then filtered else Unchecked.defaultof<Node>
 
 // check whether a polygon node forms a valid ear with adjacent nodes
 let internal isEar(ear: Node) : bool =
@@ -585,7 +653,7 @@ let internal isEarHashed(ear: Node, minX: float, minY: float, invSize: float) : 
     result
 
 // go through all polygon nodes and cure small local self-intersections
-let internal cureLocalIntersections(start: Node, triangles: ResizeArray<int>) : Node =
+let internal cureLocalIntersections(ws: Workspace, start: Node, triangles: ResizeArray<int>) : Node =
     let mutable p = start
     let mutable start = start
     let mutable cured = false
@@ -611,10 +679,10 @@ let internal cureLocalIntersections(start: Node, triangles: ResizeArray<int>) : 
         p <- p.next
         continueLoop <- p =!= start
 
-    if cured then filterPoints(p, p) else p
+    if cured then filterPoints(ws, p, p) else p
 
 // try splitting polygon into two and triangulate them independently
-let rec internal splitEarcut(start: Node, triangles: ResizeArray<int>, minX: float, minY: float, invSize: float) : unit =
+let rec internal splitEarcut(ws: Workspace, start: Node, triangles: ResizeArray<int>, minX: float, minY: float, invSize: float) : unit =
     // look for a valid diagonal that divides the polygon into two
     let mutable a = start
     let mutable outerContinue = true
@@ -627,12 +695,12 @@ let rec internal splitEarcut(start: Node, triangles: ResizeArray<int>, minX: flo
                 let mutable c = splitPolygon(a, b)
 
                 // filter colinear points around the cuts
-                a <- filterPoints(a, a.next)
-                c <- filterPoints(c, c.next)
+                a <- filterPoints(ws, a, a.next)
+                c <- filterPoints(ws, c, c.next)
 
                 // run earcut on each half
-                earcutLinked(a, triangles, minX, minY, invSize)
-                earcutLinked(c, triangles, minX, minY, invSize)
+                earcutLinked(ws, a, triangles, minX, minY, invSize)
+                earcutLinked(ws, c, triangles, minX, minY, invSize)
                 outerContinue <- false
                 innerContinue <- false
             else
@@ -644,9 +712,9 @@ let rec internal splitEarcut(start: Node, triangles: ResizeArray<int>, minX: flo
             outerContinue <- a =!= start
 
 // main ear slicing loop which triangulates a polygon (given as a linked list)
-and internal earcutLinked(ear: Node, triangles: ResizeArray<int>, minX: float, minY: float, invSize: float) : unit =
+and internal earcutLinked(ws: Workspace, ear: Node, triangles: ResizeArray<int>, minX: float, minY: float, invSize: float) : unit =
     // interlink polygon nodes in z-order
-    if invSize <> 0.0 then indexCurve(ear, minX, minY, invSize)
+    if invSize <> 0.0 then indexCurve(ws, ear, minX, minY, invSize)
 
     let mutable ear = ear
     let mutable stop = ear
@@ -675,18 +743,18 @@ and internal earcutLinked(ear: Node, triangles: ResizeArray<int>, minX: float, m
             if ear === stop then
                 // try filtering collinear/coincident points and slicing again - repeat as long as
                 // filtering actually removes nodes, since each removal can expose new ears
-                filteredOut <- false
-                ear <- filterPoints(ear, ear)
-                if filteredOut then
+                let filtered = filterPointsIfChanged(ws, ear)
+                if notNull filtered then
+                    ear <- filtered
                     stop <- ear
                 elif not cured then
                     // filtering is exhausted: cure small local self-intersections once, then retry
-                    ear <- cureLocalIntersections(ear, triangles)
+                    ear <- cureLocalIntersections(ws, ear, triangles)
                     stop <- ear
                     cured <- true
                 else
                     // as a last resort, try splitting the remaining polygon into two
-                    splitEarcut(ear, triangles, minX, minY, invSize)
+                    splitEarcut(ws, ear, triangles, minX, minY, invSize)
                     continueLoop <- false
 
 let internal compareXYSlope(a: Node) (b: Node) : int =
@@ -707,7 +775,7 @@ let internal compareXYSlope(a: Node) (b: Node) : int =
     else 0
 
 // David Eberly's algorithm for finding a bridge between hole and outer polygon
-let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
+let internal findHoleBridge(blockBBox: float[], numBlocks: int, blockHead: Node[], blockStop: Node[], hole: Node, outerNode: Node) : Node =
     let hx = hole.x
     let hy = hole.y
     let mutable qx = -infinity
@@ -728,9 +796,9 @@ let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
         while not hasEarlyReturn && b < numBlocks do
             if not (hy < blockBBox.[g + 1] || hy > blockBBox.[g + 3] || blockBBox.[g] > hx || blockBBox.[g + 2] <= qx) then
                 // ensure the walk's exclusive bound is live so we don't overrun into other blocks
-                let stop = liveBlockStop(b)
+                let stop = liveBlockStop(blockStop, b)
 
-                let mutable p = liveBlockHead(b)
+                let mutable p = liveBlockHead(blockHead, b)
                 let mutable continueLoop = true
                 // do-while loop: execute once then check condition
                 while continueLoop do
@@ -772,9 +840,9 @@ let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
             let mutable g = 0
             while b < numBlocks do
                 if not (blockBBox.[g + 2] < mx || blockBBox.[g] > hx || blockBBox.[g + 3] < tminY || blockBBox.[g + 1] > tmaxY) then
-                    let stop = liveBlockStop(b)
+                    let stop = liveBlockStop(blockStop, b)
 
-                    let mutable p = liveBlockHead(b)
+                    let mutable p = liveBlockHead(blockHead, b)
                     let mutable continueLoop = true
                     // do-while loop: execute once then check condition
                     while continueLoop do
@@ -798,8 +866,12 @@ let internal findHoleBridge(hole: Node, outerNode: Node) : Node =
             m
 
 // find a bridge between vertices that connects hole with an outer ring and link it
-let internal eliminateHole(hole: Node, outerNode: Node) : Node =
-    let bridge = findHoleBridge(hole, outerNode)
+let internal eliminateHole(ws: Workspace, hole: Node, outerNode: Node) : Node =
+    let blockBBox = ws.blockBBox
+    let numBlocks = ws.numBlocks
+    let blockHead = ws.blockHead
+    let blockStop = ws.blockStop
+    let bridge = findHoleBridge(blockBBox, numBlocks, blockHead, blockStop, hole, outerNode)
     if isNull bridge then
         outerNode
     else
@@ -810,14 +882,15 @@ let internal eliminateHole(hole: Node, outerNode: Node) : Node =
         // hole's edges and both new slit edges. filterPoints below only drops collinear /
         // coincident points, so these bboxes stay valid (conservative) supersets.
         let bridge2 = bridgeReverse.next
-        indexSegment(bridge, bridge2.next)
+        indexSegment(ws, bridge, bridge2.next)
 
         // heal collinear/coincident points around the two new slit edges
-        filterPoints(bridgeReverse, bridgeReverse.next) |> ignore
-        filterPoints(bridge, bridge.next)
+        filterPoints(ws, bridgeReverse, bridgeReverse.next) |> ignore
+        filterPoints(ws, bridge, bridge.next)
 
 // link every hole into the outer loop, producing a single-ring polygon without holes
-let internal eliminateHoles(data: array<float>, holeIndices: array<int>, outerNode: Node, dim: int) : Node =
+let internal eliminateHoles(ws: Workspace, data: array<float>, holeIndices: array<int>, outerNode: Node, dim: int) : Node =
+    let steiners = ws.steiners
     let queue = ResizeArray<Node>()
 
     for i = 0 to holeIndices.Length - 1 do
@@ -832,19 +905,19 @@ let internal eliminateHoles(data: array<float>, holeIndices: array<int>, outerNo
 
     // block-bbox index for findHoleBridge, grown append-only as holes merge (see notes
     // above buildBlockIndex). Seed it with the outer ring, then append each merged hole.
-    buildBlockIndex(data.Length / dim, holeIndices.Length)
-    indexSegment(outerNode, outerNode)
+    buildBlockIndex(ws, data.Length / dim, holeIndices.Length)
+    indexSegment(ws, outerNode, outerNode)
 
-    // process holes from left to right; indexActive lets removeNode keep block bboxes live as
+    // process holes from left to right; indexActive lets filterPoints keep block bboxes live as
     // filterPoints heals edges during merges (see growBlock)
-    indexActive <- true
+    ws.indexActive <- true
     let mutable outerNode = outerNode
     for i = 0 to queue.Count - 1 do
-        outerNode <- eliminateHole(queue.[i], outerNode)
-    indexActive <- false
+        outerNode <- eliminateHole(ws, queue.[i], outerNode)
+    ws.indexActive <- false
 
     // collapse collinear/coincident points across the whole merged ring once before clipping
-    filterPoints(outerNode, outerNode)
+    filterPoints(ws, outerNode, outerNode)
 
 
 ///<summary> Triangulates a polygon with holes, given as flat array of numbers.</summary>
@@ -870,6 +943,8 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
     if vertices.Length < dimensions * 3 then
         triangles
     else
+        let ws = getWorkspace()
+        let steiners = ws.steiners
         let hasHoles =  not (obj.ReferenceEquals(holeIndices, null))  && holeIndices.Length > 0
         let outerLen = if hasHoles then holeIndices.[0] * dimensions else vertices.Length
         if steiners.Count > 0 then steiners.Clear()
@@ -884,7 +959,7 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
             let mutable invSize = 0.0
 
             if hasHoles then
-                outerNode <- eliminateHoles(vertices, holeIndices, outerNode, dimensions)
+                outerNode <- eliminateHoles(ws, vertices, holeIndices, outerNode, dimensions)
 
             // if the shape is not too simple, we'll use z-order curve hash later; calculate polygon bbox
             if vertices.Length > 80 * dimensions then
@@ -907,7 +982,7 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
                 invSize <- max (maxX - minX) (maxY - minY)
                 invSize <- if invSize <> 0.0 then 32767.0 / invSize else 0.0
 
-            earcutLinked(outerNode, triangles, minX, minY, invSize)
+            earcutLinked(ws, outerNode, triangles, minX, minY, invSize)
 
             triangles
 
@@ -1052,18 +1127,6 @@ let flatten(data: float[][][])  =
     {|vertices = vertices.ToArray(); holes = holes.ToArray(); dimensions = dimensions|}
 
 
-// Reusable module-level scratch for refine():
-//   he        = twin half-edge of each edge, or -1 on the polygon boundary
-//   hTable    = open-addressing hash, slot -> half-edge index, valid iff hStamp[slot] = gen
-//   edgeStamp = pending-in-stack flag, cleared when the edge is popped
-let mutable internal edgeStack : int[] = Array.empty
-let mutable internal he : int[] = Array.empty
-let mutable internal hTable : int[] = Array.empty
-let mutable internal hStamp : int[] = Array.empty
-let mutable internal edgeStamp : int[] = Array.empty
-let mutable internal hMask = 0
-let mutable internal gen = 0
-
 let inline internal orient(ax: float, ay: float, bx: float, by: float, cx: float, cy: float) : float =
     (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
 
@@ -1093,18 +1156,22 @@ let inline internal nextHE(e: int) : int =
     e - e % 3 + (e + 1) % 3
 
 // Grow the scratch arrays on demand (like earcut's z-order arrays).
-let internal ensureScratch(n: int) : unit =
+let internal ensureScratch(ws: Workspace, n: int) : unit =
+    let edgeStack = ws.edgeStack
+    let he = ws.he
+    let edgeStamp = ws.edgeStamp
+    let hTable = ws.hTable
     // edgeStack holds at most one entry per half-edge (edgeStamp dedups), so n is a safe cap -
     // sizing it up front lets the cascade push without a bounds/grow check.
-    if edgeStack.Length < n then edgeStack <- arrayZeroCreateInt n
-    if he.Length < n then he <- arrayZeroCreateInt n
-    if edgeStamp.Length < n then edgeStamp <- arrayZeroCreateInt n
+    if edgeStack.Length < n then ws.edgeStack <- arrayZeroCreateInt n
+    if he.Length < n then ws.he <- arrayZeroCreateInt n
+    if edgeStamp.Length < n then ws.edgeStamp <- arrayZeroCreateInt n
     let mutable size = 1
     while size < n * 4 do size <- size <<< 1 // power-of-two table, load factor <= 0.25
     if hTable.Length < size then
-        hTable <- arrayZeroCreateInt size
-        hStamp <- arrayZeroCreateInt size
-    hMask <- size - 1
+        ws.hTable <- arrayZeroCreateInt size
+        ws.hStamp <- arrayZeroCreateInt size
+    ws.hMask <- size - 1
 
 ///<summary>Refines a triangulation toward the constrained Delaunay triangulation by legalizing every
 /// interior edge in place with Lawson flips - maximizing the minimum angle and removing most
@@ -1119,8 +1186,16 @@ let refine(triangles: ResizeArray<int>, coords: array<float>, dim: int) : unit =
     let t = triangles
     let n = t.Count
     if n >= 6 then
-        ensureScratch(n)
-        gen <- gen + 1 // bumping the generation logically empties the hash (no clearing)
+        let ws = getWorkspace()
+        ensureScratch(ws, n)
+        let edgeStack = ws.edgeStack
+        let he = ws.he
+        let edgeStamp = ws.edgeStamp
+        let hTable = ws.hTable
+        let hStamp = ws.hStamp
+        let hMask = ws.hMask
+        let gen = ws.gen + 1
+        ws.gen <- gen // bumping the generation logically empties the hash (no clearing)
         Array.fill he 0 n (-1)
 
         // Build half-edge twins with an undirected-edge hash; consumed slots mark linked pairs. As each

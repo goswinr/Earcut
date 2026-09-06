@@ -10,8 +10,10 @@ while the last digits indicate the release number of this F# port.
 
 ## [Unreleased]
 ### Changed
+- On .NET, `earcut`, its convenience wrappers and `refine` are thread-safe again: the reusable scratch buffers now live in a per-thread `Workspace` instead of module-level mutable state. Fable/JS keeps one workspace per JS context. This reverts the thread-safety caveat introduced in 3.2.31.
 - Removed a redundant per-iteration bounding box expansion in the hole-bridge block index, see [mapbox/earcut#207](https://github.com/mapbox/earcut/issues/207). Triangulation results are unchanged.
 ### Added
+- Regression test that runs `earcut` and `refine` concurrently on multiple threads and compares indices element-for-element against sequential results.
 - `.claude/hooks/session-start.sh`: a SessionStart hook that installs the .NET SDK, the pinned Fable and fsdocs tools and runs `dotnet fable`, so builds and tests work in Claude Code on the web. Development only, it is not part of the published package.
 
 
