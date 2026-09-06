@@ -1004,7 +1004,11 @@ let deviation(vertices: array<float>, holeIndices: array<int>, dim: int, triangl
         i <- i + 3
 
     if trianglesArea = 0.0 then
-        // Number.EPSILON (2^-52), rather than System.Double.Epsilon, for parity with upstream JS.
+        // https://github.com/mapbox/earcut/commit/0302a7564198774d52d8763aacaf6c0f453f6f16
+        // with no triangles, a polygon area within shoelace roundoff of zero (which scales with the
+        // squared coordinate magnitude) means the input was degenerate rather than mistriangulated
+
+        // Number.EPSILON (2^-52), is tottally not the same as System.Double.Epsilon!!  for parity with upstream JS.
         let machineEpsilon = 2.220446049250313e-16
         let mutable maxCoordinate = 0.0
         let mutable i = 0
@@ -1012,8 +1016,10 @@ let deviation(vertices: array<float>, holeIndices: array<int>, dim: int, triangl
             maxCoordinate <- max maxCoordinate (abs(vertices.[i]))
             maxCoordinate <- max maxCoordinate (abs(vertices.[i + 1]))
             i <- i + dim
-        if abs(polygonArea) <= float vertices.Length * maxCoordinate * maxCoordinate * machineEpsilon then 0.0
-        else 1.0
+        if abs(polygonArea) <= float vertices.Length * maxCoordinate * maxCoordinate * machineEpsilon then
+            0.0
+        else
+            1.0
     else abs((trianglesArea - polygonArea) / polygonArea)
 
 
