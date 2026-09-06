@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 Earcut is an F# (and Fable/JS) port of [Mapbox's Earcut](https://github.com/mapbox/earcut)
-polygon triangulation library. All shippable code lives in a single file: [Src/Earcut.fs](Src/Earcut.fs).
+polygon triangulation library. All shippable code lives in a single file: [Earcut.fs](Earcut.fs).
 The library has **no dependencies** and is published to NuGet as a both a .NET library and a
 Fable source package (the `.fs`/`.fsproj` sources are packed under `fable/` so Fable consumers
 compile the F# directly to JS).

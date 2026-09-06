@@ -1,6 +1,6 @@
 import {readFileSync} from 'fs';
 // import {flatten} from '../../mapbox-earcut/src/earcut.js'; // original JS version
-import {flatten} from '../../Src/Earcut.fs.js'; // F# to JS version
+import {flatten} from '../../Earcut.fs.js'; // F# to JS version
 
 // Reads tiles-fixture.bin: length-delimited packed-varint MVT geometry blobs,
 // one per polygon feature. Decodes them with a small varint reader (no pbf

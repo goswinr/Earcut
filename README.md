@@ -27,7 +27,7 @@ v3.2.3 ported to F# on 2026-07-12
 including the MVT regression suite over 119,680 real-world polygons.
 The port produces element-for-element identical output to the reference JS implementation.
 
-All relevant code is in  [Earcut.fs](https://github.com/goswinr/Euclid.Earcut/blob/main/Src/Earcut.fs). <br>
+All relevant code is in  [Earcut.fs](https://github.com/goswinr/Euclid.Earcut/blob/main/Earcut.fs). <br>
 It contains the ported code without any major changes to the original logic. <br>
 It has no dependencies.
 

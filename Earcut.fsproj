@@ -56,9 +56,10 @@
 
     <None Include="./README.md" Pack="true" PackagePath="" />
     <None Include="./Docs/img/logo128.png" Pack="true" PackagePath="" />  <!--PackagePath = "" makes the file available to nuget pack tool-->
-    <Content Include="*.fsproj; **/*.fs; **/*.fsi" PackagePath="fable/" />
+    <!--so that it can be used with Fable. Only the root source file, not the generated obj files.-->
+    <Content Include="*.fsproj; *.fs; *.fsi" PackagePath="fable/" />
 
-    <Compile Include="Src/Earcut.fs" />
+    <Compile Include="Earcut.fs" />
   </ItemGroup>
 
 

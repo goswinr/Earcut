@@ -1,4 +1,4 @@
-// Benchmark the optional Delaunay refinement post-pass (refine() in Src/Earcut.fs)
+// Benchmark the optional Delaunay refinement post-pass (refine() in Earcut.fs)
 // over the same realistic MVT fixture as bench-tiles.js. Measures the added cost of
 // refine() relative to earcut alone, and reports the resulting triangle quality.
 //
@@ -7,7 +7,7 @@
 // cache and refines that. This keeps earcut out of both the timing and the profile, so a
 // flame graph is dominated by refine() itself rather than burying it under two earcut passes.
 // import earcut, {refine} from '../../mapbox-earcut/src/earcut.js'; // original JS version
-import {earcut, refine} from '../../Src/Earcut.fs.js'; // F# to JS version
+import {earcut, refine} from '../../Earcut.fs.js'; // F# to JS version
 import {readTilesFixture} from './tiles-fixture.js';
 
 const polys = readTilesFixture();

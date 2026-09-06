@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 
 // import earcut, {flatten, deviation, refine} from '../src/earcut.js'; // original JS version
-import {earcut, flatten, deviation, refine} from '../Src/Earcut.fs.js'; // F# to JS version
+import {earcut, flatten, deviation, refine} from '../Earcut.fs.js'; // F# to JS version
 import {readTilesFixture} from './bench/tiles-fixture.js';
 
 const expected = JSON.parse(fs.readFileSync(new URL('expected.json', import.meta.url)));

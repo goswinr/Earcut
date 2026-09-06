@@ -3,7 +3,7 @@
 
 #r "nuget: Newtonsoft.Json, 13.0.4"
 
-#load "../Src/Earcut.fs"
+#load "../Earcut.fs"
 
 open System
 open System.IO

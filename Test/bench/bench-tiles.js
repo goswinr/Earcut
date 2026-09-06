@@ -2,7 +2,7 @@
 // from a local tile cache by a one-off, author-machine-specific script; regenerating
 // it is intentionally out of scope for this repo.
 // import earcut from '../../mapbox-earcut/src/earcut.js'; // original JS version
-import {earcut} from '../../Src/Earcut.fs.js'; // F# to JS version
+import {earcut} from '../../Earcut.fs.js'; // F# to JS version
 import {readTilesFixture} from './tiles-fixture.js';
 
 const polys = readTilesFixture(); // each: {vertices, holes, dimensions, z} ready for earcut
