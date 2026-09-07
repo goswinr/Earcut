@@ -3,8 +3,7 @@
 
 #r "nuget: Newtonsoft.Json, 13.0.4"
 
-//#load "../Src/Earcut.fs"
-#load "D:/Git/_Euclid_/Earcut/Src/Earcut.fs"
+#load "../Src/Earcut.fs"
 
 open System
 open System.IO
@@ -521,6 +520,169 @@ runTest "block-index-collinear" (fun () ->
         let err = deviation(data.vertices, data.holes, data.dimensions, indices)
         ok <- assertOk (err < 1e-9) (sprintf "block-index-collinear rotation %d: deviation %g (hole dropped?)" rotation err) && ok
     ok
+)
+
+// ============================================================
+// .NET parallel regression tests (Workspace refactor)
+// ============================================================
+// Since the Workspace refactor, earcut/refine cache one scratch Workspace per .NET thread
+// (see the "Thread safety" section in README.md), so genuinely concurrent calls from different
+// threads must not interfere with each other. These tests are .NET-only (Test/test.fsx, run via
+// `dotnet fsi`) - JS is single-threaded, so Test/test.js has no equivalent. They compare exact
+// triangle index arrays against serial baselines (not just deviation), both before and after
+// refine, across small/simple polygons, a Steiner-point fixture, a multi-hole fixture (exercises
+// the hole-bridge block index), and a large fixture (exercises z-order radix sorting).
+
+open System.Threading.Tasks
+
+type private ConcurrencyCase = {
+    name: string
+    // returns a fresh vertices array on every call, so concurrent workers never share array
+    // identity (callers must not mutate coordinate inputs while operations use them)
+    makeVertices: unit -> float[]
+    holes: int[]
+    dim: int
+}
+
+let private concurrencyCases : ConcurrencyCase list =
+    let steinerData = flatten (readJson<float[][][]> "fixtures/steiner.json")
+    let earcutData = flatten (readJson<float[][][]> "fixtures/earcut.json")
+    let holesData = flatten (readJson<float[][][]> "fixtures/touching-holes6.json")
+    let hugeData = flatten (readJson<float[][][]> "fixtures/water-huge3.json")
+    [
+        { name = "small-simple"; makeVertices = (fun () -> [| 10.0; 0.0; 0.0; 50.0; 60.0; 60.0; 70.0; 10.0 |]); holes = null; dim = 2 }
+        { name = "degenerate-empty"; makeVertices = (fun () -> [||]); holes = null; dim = 2 }
+        { name = "steiner-points"; makeVertices = (fun () -> Array.copy steinerData.vertices); holes = steinerData.holes; dim = steinerData.dimensions }
+        { name = "multi-hole-block-index"; makeVertices = (fun () -> Array.copy holesData.vertices); holes = holesData.holes; dim = holesData.dimensions }
+        { name = "earcut-fixture"; makeVertices = (fun () -> Array.copy earcutData.vertices); holes = earcutData.holes; dim = earcutData.dimensions }
+        { name = "z-order-radix-sort"; makeVertices = (fun () -> Array.copy hugeData.vertices); holes = hugeData.holes; dim = hugeData.dimensions }
+    ]
+
+// serial baselines, computed single-threaded up front, before any concurrent access begins
+let private serialEarcutBaselines =
+    concurrencyCases
+    |> List.map (fun c -> c.name, earcut(c.makeVertices(), c.holes, c.dim) |> Seq.toArray)
+    |> dict
+
+let private serialRefinedBaselines =
+    concurrencyCases
+    |> List.map (fun c ->
+        let vertices = c.makeVertices()
+        let triangles = earcut(vertices, c.holes, c.dim)
+        refine(triangles, vertices, c.dim)
+        c.name, triangles |> Seq.toArray)
+    |> dict
+
+// repeat and shuffle-interleave the cases so many differently sized workspaces are in flight
+// on the thread pool at once, exercising per-thread lazy buffer growth under real overlap
+let private makeJobs (repeats: int) : ConcurrencyCase[] =
+    let rnd = Random(42)
+    [| for _ in 1 .. repeats do yield! concurrencyCases |] |> Array.sortBy (fun _ -> rnd.Next())
+
+runTest "parallel earcut-only matches serial baselines across .NET threads" (fun () ->
+    let jobs = makeJobs 60
+    let results = Array.zeroCreate<bool> jobs.Length
+    Parallel.For(0, jobs.Length, fun i ->
+        let c = jobs.[i]
+        let actual = earcut(c.makeVertices(), c.holes, c.dim) |> Seq.toArray
+        results.[i] <- actual = serialEarcutBaselines.[c.name]
+    ) |> ignore
+    assertOk (Array.forall id results) $"parallel earcut-only: {Array.filter not results |> Array.length} / {jobs.Length} workers mismatched serial baseline"
+)
+
+runTest "parallel refine-only on independently owned triangle lists matches serial baselines" (fun () ->
+    let jobs = makeJobs 60
+    let results = Array.zeroCreate<bool> jobs.Length
+    Parallel.For(0, jobs.Length, fun i ->
+        let c = jobs.[i]
+        let vertices = c.makeVertices()
+        // each worker triangulates its own independently-owned triangle list before refining it -
+        // never share a single triangles ResizeArray across concurrent refine calls
+        let triangles = earcut(vertices, c.holes, c.dim)
+        refine(triangles, vertices, c.dim)
+        results.[i] <- (triangles |> Seq.toArray) = serialRefinedBaselines.[c.name]
+    ) |> ignore
+    assertOk (Array.forall id results) $"parallel refine-only: {Array.filter not results |> Array.length} / {jobs.Length} workers mismatched serial baseline"
+)
+
+runTest "parallel earcut+refine together matches serial baselines across .NET threads" (fun () ->
+    let jobs = makeJobs 60
+    let results = Array.zeroCreate<bool> jobs.Length
+    Parallel.For(0, jobs.Length, fun i ->
+        let c = jobs.[i]
+        let vertices = c.makeVertices()
+        let triangles = earcut(vertices, c.holes, c.dim)
+        let matchesEarcut = (triangles |> Seq.toArray) = serialEarcutBaselines.[c.name]
+        refine(triangles, vertices, c.dim)
+        let matchesRefine = (triangles |> Seq.toArray) = serialRefinedBaselines.[c.name]
+        results.[i] <- matchesEarcut && matchesRefine
+    ) |> ignore
+    assertOk (Array.forall id results) $"parallel earcut+refine: {Array.filter not results |> Array.length} / {jobs.Length} workers mismatched serial baseline"
+)
+
+runTest "repeated earcut+refine reuse on the same thread stays correct across varying sizes" (fun () ->
+    // exercise workspace buffer growth/reuse: small, then large (grows sort/block buffers),
+    // then small again (buffers must still be usable, and results unaffected by past growth)
+    let sequence = [ "small-simple"; "z-order-radix-sort"; "multi-hole-block-index"; "small-simple"; "steiner-points"; "z-order-radix-sort" ]
+    let byName = concurrencyCases |> List.map (fun c -> c.name, c) |> dict
+    let mutable ok = true
+    for name in sequence do
+        let c = byName.[name]
+        let vertices = c.makeVertices()
+        let triangles = earcut(vertices, c.holes, c.dim)
+        ok <- assertOk ((triangles |> Seq.toArray) = serialEarcutBaselines.[name]) $"repeated reuse: {name} earcut matches baseline" && ok
+        refine(triangles, vertices, c.dim)
+        ok <- assertOk ((triangles |> Seq.toArray) = serialRefinedBaselines.[name]) $"repeated reuse: {name} refine matches baseline" && ok
+    ok
+)
+
+runTest "a throwing refine call discards dirty scratch before the next call on the same thread" (fun () ->
+    // build a concave polygon with a real interior diagonal, so refine's flip cascade actually
+    // pops an edge and bumps ws.gen / sets ws.edgeStamp / ws.he before touching coords - passing
+    // null coords then throws mid-cascade, deep in dirty per-thread scratch state (not just a
+    // pre-work null check), exercising the exact scenario the design doc calls out: refine
+    // assumes edgeStamp pending flags were cleared by successful stack processing.
+    let concaveVertices = [| 0.0; 0.0; 4.0; 0.0; 4.0; 1.0; 1.0; 1.0; 1.0; 4.0; 0.0; 4.0 |]
+    let dirtyTriangles = earcut(concaveVertices, null, 2)
+    let threw =
+        try
+            refine(dirtyTriangles, null, 2)
+            false
+        with
+        | :? NullReferenceException -> true
+
+    // the thread's cached workspace must have been discarded and replaced, so this fresh call
+    // reuses clean scratch rather than a half-processed edge stack / stale generation counter
+    let vertices = [| 10.0; 0.0; 0.0; 50.0; 60.0; 60.0; 70.0; 10.0 |]
+    let triangles = earcut(vertices, null, 2)
+    refine(triangles, vertices, 2)
+    let dev = deviation(vertices, null, 2, triangles)
+
+    assertOk threw "throwing refine call: null coords raised NullReferenceException mid-cascade" &&
+    assertOk (dev = 0.0) "throwing refine call: subsequent earcut+refine on the same thread is still correct"
+)
+
+runTest "a throwing earcut call discards dirty scratch before the next call on the same thread" (fun () ->
+    // an out-of-bounds hole index deterministically throws while eliminateHoles is still
+    // building its hole queue (steiners may already hold entries from earlier holes in the
+    // same call), exercising the earcut public wrapper's discard-and-rethrow path.
+    let vertices = [| 0.0; 0.0; 4.0; 0.0; 4.0; 4.0; 0.0; 4.0 |]
+    let outOfBoundsHoles = [| 999 |]
+    let threw =
+        try
+            earcut(vertices, outOfBoundsHoles, 2) |> ignore
+            false
+        with
+        | :? IndexOutOfRangeException -> true
+
+    let indices = earcut(vertices, null, 2)
+    let dev = deviation(vertices, null, 2, indices)
+    refine(indices, vertices, 2)
+    let devAfterRefine = deviation(vertices, null, 2, indices)
+
+    assertOk threw "throwing earcut call: out-of-bounds hole index raised IndexOutOfRangeException" &&
+    assertOk (dev = 0.0) "throwing earcut call: subsequent earcut on the same thread is still correct" &&
+    assertOk (devAfterRefine = 0.0) "throwing earcut call: subsequent refine on the same thread is still correct"
 )
 
 // Print summary

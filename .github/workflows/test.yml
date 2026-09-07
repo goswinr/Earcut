@@ -24,6 +24,12 @@ jobs:
       - name: Restore .NET tools (Fable)
         run: dotnet tool restore
 
+      - name: Build .NET
+        run: dotnet build
+
+      - name: Run tests .NET
+        run: dotnet fsi Test/test.fsx
+
       - name: Setup Node.js
         uses: actions/setup-node@v7.0.0
         with:

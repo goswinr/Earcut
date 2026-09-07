@@ -257,10 +257,24 @@ Earcut.validate(vertices, holes, dimensions)
 
 ## Thread safety
 
-Since v3.2.3, and mirroring the upstream JS implementation, this library keeps reusable scratch
-state at module level (for the hole-bridge spatial index, the z-order sort and `refine` buffers). <br>
-Calls into the `Earcut` module are therefore **not thread-safe** - do not triangulate
-concurrently from multiple threads.
+This library keeps its reusable scratch state (for the hole-bridge spatial index, the z-order
+sort, and the `refine` buffers) in an internal `Workspace` instead of at module level. <br>
+On .NET, `earcut` and `refine` each use a **Workspace cached per calling thread**, so independent
+calls from different threads run **genuinely in parallel** without sharing state - no lock, no
+serialization. On Fable/JS (a single-threaded runtime) a single cached workspace is reused across
+calls, matching the upstream JS implementation.
+
+This gives you parallel *independent* calls, not safe *overlapping* use of the same call or data:
+
+- `refine` mutates the `triangles` list you pass it **in place**. Do not concurrently call
+  `refine` (or read the list) from more than one thread for the very same triangle list.
+- Do not mutate a `vertices`/`coords`/`holeIndices` array while a call using it is in progress.
+- If a call throws, that thread's cached workspace is discarded and replaced before the exception
+  propagates, so a later call on the same thread is unaffected - but the specific triangulation
+  or refinement call that threw still failed.
+- Each thread that has called into `earcut`/`refine` retains its own grown scratch buffers, so
+  memory use scales with the number of participating threads. We have not benchmarked the actual
+  speedup or overhead of this design - measure for your own workload before relying on it.
 
 
 ## Build for .NET Standard 2.0
@@ -280,8 +294,8 @@ then build to JS with:
 
 ## Run Tests
 
-build to JS with `dotnet fable` <br>
-run tests with `node Test/test.js`
+.NET: `dotnet fsi Test/test.fsx` (includes the parallel .NET-thread regression tests) <br>
+JS: build to JS with `dotnet fable`, then run tests with `node Test/test.js`
 
 ## Images of test cases
 

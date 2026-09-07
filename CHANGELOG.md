@@ -9,6 +9,8 @@ The first three digits of the version number (e.g. `3.0.2`) correspond to the or
 while the last digits indicate the release number of this F# port.
 
 ## [Unreleased]
+### Changed
+- Reusable scratch state moved from module level into an internal `Workspace`, cached per .NET thread (a single cached workspace on Fable/JS), so `earcut` and `refine` are safe to call in parallel from independent .NET threads without a lock. Public `earcut`/`refine` signatures are unchanged.
 
 
 ## [3.2.31] - 2026-07-12
