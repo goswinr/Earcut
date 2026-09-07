@@ -23,6 +23,20 @@ test('empty', () => {
     assert.deepEqual(earcut([], null, 2), []);
 });
 
+test('deviation zero-area handling', () => {
+    const collinear = [0.1, 0.2, 1.3, 2.6, 2.5, 5.0, 3.7, 7.4];
+    const collinearTriangles = earcut(collinear, null, 2);
+    const valid = [0, 0, 1, 0, 1, 1, 0, 1];
+    const zIgnored = [0, 0, 1e300, 1, 0, 1e300, 1, 1, 1e300, 0, 1, 1e300];
+    assert.deepEqual(collinearTriangles, []);
+    assert.equal(deviation(collinear, null, 2, collinearTriangles), 0);
+    assert.equal(deviation([], null, 2, []), 0);
+    assert.equal(deviation(valid, null, 2, []), 1);
+    assert.equal(deviation(valid, null, 2, [0, 1, 2, 0, 2, 3]), 0);
+    assert.equal(deviation(valid, null, 2, [0, 1, 2]), 0.5);
+    assert.equal(deviation(zIgnored, null, 3, []), 1);
+});
+
 // tracks the worst deviation across the three non-zero rotations per fixture,
 // so we can tell when the errors-with-rotation bound can be tightened
 const maxRotated = new Map();
@@ -312,4 +326,3 @@ test('block-index-collinear', () => {
         assert.ok(err < 1e-9, `rotation ${rotation}: deviation ${err} (hole dropped?)`);
     }
 });
-
