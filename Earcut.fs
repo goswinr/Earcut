@@ -57,21 +57,6 @@ let inline internal notNull (node: Node) : bool = not <| obj.ReferenceEquals(nod
 
 let inline internal isNull (node: Node) : bool = obj.ReferenceEquals(node, Unchecked.defaultof<Node>)
 
-/// Creates an int array of the given length, initialized to zero. (an Int32Array when compiled with Fable)
-let inline arrayZeroCreateInt (len:int) : int [] =
-    #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
-        Fable.Core.JsInterop.emitJsExpr (len) "new Int32Array($0)"
-    #else
-        Array.zeroCreate<int> len
-    #endif
-
-/// Creates a float array of the given length, initialized to zero. (a Float64Array when compiled with Fable)
-let inline arrayZeroCreateFloat (len:int) : float [] =
-    #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
-        Fable.Core.JsInterop.emitJsExpr (len) "new Float64Array($0)"
-    #else
-        Array.zeroCreate<float> len
-    #endif
 
 // 32-bit integer multiplication with wrap-around overflow (Math.imul in JS)
 let inline internal imul (a: int) (b: int) : int =
@@ -116,8 +101,8 @@ type internal Workspace = {
     mutable indexActive: bool
 
     // radix sort buffers: node references and parallel z-values, plus an 8-bit histogram
-    mutable sortArr: Node[]
-    mutable sortBuf: Node[]
+    sortArr: ResizeArray<Node>
+    sortBuf: ResizeArray<Node>
     mutable zArr: int[]
     mutable zBuf: int[]
     counts: int[]
@@ -138,21 +123,21 @@ type internal Workspace = {
 let internal createWorkspace() : Workspace = {
     steiners = HashSet<Node>(HashIdentity.Reference)
     filteredOut = false
-    blockBBox = Array.empty
+    blockBBox = [||]
     numBlocks = 0
-    blockHead = Array.empty
-    blockStop = Array.empty
+    blockHead = [||]
+    blockStop = [||]
     indexActive = false
-    sortArr = Array.empty
-    sortBuf = Array.empty
-    zArr = Array.empty
-    zBuf = Array.empty
-    counts = arrayZeroCreateInt 256
-    edgeStack = Array.empty
-    he = Array.empty
-    hTable = Array.empty
-    hStamp = Array.empty
-    edgeStamp = Array.empty
+    sortArr = ResizeArray<Node>()
+    sortBuf = ResizeArray<Node>()
+    zArr = [||]
+    zBuf = [||]
+    counts = Array.zeroCreate<int> 256
+    edgeStack = [||]
+    he = [||]
+    hTable = [||]
+    hStamp = [||]
+    edgeStamp = [||]
     hMask = 0
     gen = 0
     }
@@ -171,7 +156,7 @@ let internal buildBlockIndex(ws: Workspace, maxNodes: int, numHoles: int) : unit
     // upper bound: every input node indexed once, +2 bridge nodes per hole, plus a partial
     // trailing block per appended segment (outer ring + one per hole)
     let maxBlocks = (maxNodes + 2 * numHoles + K - 1) / K + numHoles + 2
-    if blockBBox.Length < maxBlocks * 4 then ws.blockBBox <- arrayZeroCreateFloat (maxBlocks * 4)
+    if blockBBox.Length < maxBlocks * 4 then ws.blockBBox <- Array.zeroCreate<float> (maxBlocks * 4)
     if blockHead.Length < maxBlocks then
         ws.blockHead <- Array.zeroCreate maxBlocks
         ws.blockStop <- Array.zeroCreate maxBlocks
@@ -420,7 +405,7 @@ let inline internal sectorContainsSector(m: Node, p: Node) : bool =
 
 // one LSD radix pass: stably scatter the first n nodes (and their z) from src to dst,
 // bucketed by the 8-bit digit of z at the given bit shift
-let internal radixPass(counts: int[], n: int, src: Node[], srcZ: int[], dst: Node[], dstZ: int[], shift: int) : unit =
+let internal radixPass(counts: int[], n: int, src: ResizeArray<Node>, srcZ: int[], dst: ResizeArray<Node>, dstZ: int[], shift: int) : unit =
     Array.fill counts 0 256 0
     for i = 0 to n - 1 do
         let d = (srcZ.[i] >>> shift) &&& 0xff
@@ -443,9 +428,11 @@ let internal radixPass(counts: int[], n: int, src: Node[], srcZ: int[], dst: Nod
 // than histogram setup), else LSD radix in four 8-bit passes (covering z's 30 bits)
 let internal sortNodes(ws: Workspace, n: int) : unit =
     if n > 32 && ws.zArr.Length < n then
-        ws.zArr <- arrayZeroCreateInt n
-        ws.zBuf <- arrayZeroCreateInt n
-        ws.sortBuf <- Array.zeroCreate n
+        ws.zArr <- Array.zeroCreate<int> n
+        ws.zBuf <- Array.zeroCreate<int> n
+        // Radix scatter writes by index, so capacity alone is not enough.
+        while ws.sortBuf.Count < n do
+            ws.sortBuf.Add(Unchecked.defaultof<Node>)
     let sortArr = ws.sortArr
     let counts = ws.counts
     let zArr = ws.zArr
@@ -470,27 +457,21 @@ let internal sortNodes(ws: Workspace, n: int) : unit =
         radixPass(counts, n, sortArr, zArr, sortBuf, zBuf, 16)
         radixPass(counts, n, sortBuf, zBuf, sortArr, zArr, 24)
 
-// interlink polygon nodes in z-order: collect into an array, sort by z, relink
+// interlink polygon nodes in z-order: collect into a reusable list, sort by z, relink
 let internal indexCurve(ws: Workspace, start: Node, minX: float, minY: float, invSize: float) : unit =
-    let mutable sortArr = ws.sortArr
+    let sortArr = ws.sortArr
+    sortArr.Clear()
     let mutable p = start
-    let mutable n = 0
     let mutable continueLoop = true
     // do-while loop: execute once then check condition
     while continueLoop do
         // always (re)compute: z may still hold a block index left over from eliminateHoles
         p.z <- zOrder(p.x, p.y, minX, minY, invSize)
-        if n >= sortArr.Length then
-            // grow the reusable node array (the JS pushes into a plain array)
-            let grown = Array.zeroCreate (max 256 (sortArr.Length * 2))
-            Array.blit sortArr 0 grown 0 sortArr.Length
-            sortArr <- grown
-        sortArr.[n] <- p
-        n <- n + 1
+        sortArr.Add(p)
         p <- p.next
         if p === start then continueLoop <- false
 
-    ws.sortArr <- sortArr
+    let n = sortArr.Count
     sortNodes(ws, n)
 
     let mutable prev = Unchecked.defaultof<Node>
@@ -500,6 +481,12 @@ let internal indexCurve(ws: Workspace, start: Node, minX: float, minY: float, in
         if notNull prev then prev.nextZ <- node
         prev <- node
     prev.nextZ <- Unchecked.defaultof<Node>
+
+    // Drop node references while retaining storage for the next call.
+    sortArr.Clear()
+    if n > 32 then
+        for i = 0 to n - 1 do
+            ws.sortBuf.[i] <- Unchecked.defaultof<Node>
 
 let inline internal signedArea(data: array<float>, start: int, end_: int, dim: int) : float =
     let mutable sum = 0.0
@@ -891,7 +878,7 @@ let internal eliminateHole(ws: Workspace, hole: Node, outerNode: Node) : Node =
 // link every hole into the outer loop, producing a single-ring polygon without holes
 let internal eliminateHoles(ws: Workspace, data: array<float>, holeIndices: array<int>, outerNode: Node, dim: int) : Node =
     let steiners = ws.steiners
-    let queue = ResizeArray<Node>()
+    let queue = ResizeArray<Node>(holeIndices.Length)
 
     for i = 0 to holeIndices.Length - 1 do
         let start = holeIndices.[i] * dim
@@ -1163,14 +1150,14 @@ let internal ensureScratch(ws: Workspace, n: int) : unit =
     let hTable = ws.hTable
     // edgeStack holds at most one entry per half-edge (edgeStamp dedups), so n is a safe cap -
     // sizing it up front lets the cascade push without a bounds/grow check.
-    if edgeStack.Length < n then ws.edgeStack <- arrayZeroCreateInt n
-    if he.Length < n then ws.he <- arrayZeroCreateInt n
-    if edgeStamp.Length < n then ws.edgeStamp <- arrayZeroCreateInt n
+    if edgeStack.Length < n then ws.edgeStack <- Array.zeroCreate<int> n
+    if he.Length < n then ws.he <- Array.zeroCreate<int> n
+    if edgeStamp.Length < n then ws.edgeStamp <- Array.zeroCreate<int> n
     let mutable size = 1
     while size < n * 4 do size <- size <<< 1 // power-of-two table, load factor <= 0.25
     if hTable.Length < size then
-        ws.hTable <- arrayZeroCreateInt size
-        ws.hStamp <- arrayZeroCreateInt size
+        ws.hTable <- Array.zeroCreate<int> size
+        ws.hStamp <- Array.zeroCreate<int> size
     ws.hMask <- size - 1
 
 ///<summary>Refines a triangulation toward the constrained Delaunay triangulation by legalizing every
@@ -1307,8 +1294,8 @@ let earcutTriangles(holes: IList<ResizeArray<float>>) (boundary: ResizeArray<flo
         size <- size + hole.Count
 
     let mutable ii = boundary.Count
-    let holesIdx = arrayZeroCreateInt holes.Count
-    let xys = arrayZeroCreateFloat size
+    let holesIdx = Array.zeroCreate<int> holes.Count
+    let xys = Array.zeroCreate<float> size
     for i=0 to boundary.Count - 1 do
         xys.[i] <- boundary.[i]
 
@@ -1322,7 +1309,7 @@ let earcutTriangles(holes: IList<ResizeArray<float>>) (boundary: ResizeArray<flo
     let triaIdxs = earcut(xys, holesIdx, 2)
 
     let len = triaIdxs.Count * 2
-    let trias = arrayZeroCreateFloat len
+    let trias = Array.zeroCreate<float> len
     let mutable j = 0
     for i=0 to triaIdxs.Count - 1 do
         let xIdx = triaIdxs.[i] * 2
@@ -1347,8 +1334,8 @@ let inline earcutTrianglesFromMembersxy (holes: IList<ResizeArray<'T>>) (pts: Re
         size <- size + hole.Count * 2
 
     let mutable ii = 0
-    let holesIdx = arrayZeroCreateInt holes.Count
-    let xys = arrayZeroCreateFloat size
+    let holesIdx = Array.zeroCreate<int> holes.Count
+    let xys = Array.zeroCreate<float> size
     for i=0 to pts.Count - 1 do
         let p = pts.[i]
         xys.[ii] <- p.x
@@ -1367,7 +1354,7 @@ let inline earcutTrianglesFromMembersxy (holes: IList<ResizeArray<'T>>) (pts: Re
     let triaIdxs = earcut(xys, holesIdx, 2)
 
     let len = triaIdxs.Count * 2
-    let trias = arrayZeroCreateFloat len
+    let trias = Array.zeroCreate<float> len
     let mutable j = 0
     for i=0 to triaIdxs.Count - 1 do
         let x = triaIdxs.[i] * 2
@@ -1392,8 +1379,8 @@ let inline earcutTrianglesFromMembersXY (holes: IList<ResizeArray<'T>>) (pts: Re
         size <- size + hole.Count * 2
 
     let mutable ii = 0
-    let holesIdx = arrayZeroCreateInt holes.Count
-    let xys = arrayZeroCreateFloat size
+    let holesIdx = Array.zeroCreate<int> holes.Count
+    let xys = Array.zeroCreate<float> size
     for i=0 to pts.Count - 1 do
         let p = pts.[i]
         xys.[ii] <- p.X
@@ -1412,7 +1399,7 @@ let inline earcutTrianglesFromMembersXY (holes: IList<ResizeArray<'T>>) (pts: Re
     let triaIdxs = earcut(xys, holesIdx, 2)
 
     let len = triaIdxs.Count * 2
-    let trias = arrayZeroCreateFloat len
+    let trias = Array.zeroCreate<float> len
     let mutable j = 0
     for i=0 to triaIdxs.Count - 1 do
         let x = triaIdxs.[i] * 2
