@@ -21,7 +21,7 @@ https://github.com/mapbox/earcut
 
 Stable for .NET Standard 2.0 and JS via Fable.
 
-v3.2.3 ported to F# on 2026-07-12
+v3.2.4 ported to F# on 2026-10-05
 
 [All tests](https://github.com/mapbox/earcut/blob/main/test/test.js) of the original JS version pass,
 including the MVT regression suite over 119,680 real-world polygons.

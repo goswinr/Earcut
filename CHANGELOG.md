@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The first three digits of the version number (e.g. `3.0.2`) correspond to the original Mapbox Earcut version,
 while the last digits indicate the release number of this F# port.
 
+## [3.2.41] - 2026-10-04
+### Changed
+- Port of Mapbox Earcut version 3.2.4. Its other two fixes, [mapbox/earcut#207](https://github.com/mapbox/earcut/issues/207) and [mapbox/earcut#208](https://github.com/mapbox/earcut/issues/208), were already ported in 3.2.32.
+### Removed
+- The public `arrayZeroCreateInt` and `arrayZeroCreateFloat` helpers. Use `Array.zeroCreate` instead.
+### Fixed
+- The reusable z-order sort buffers no longer keep references to the nodes of the last triangulated polygon, so they can be garbage-collected, porting [mapbox/earcut#210](https://github.com/mapbox/earcut/pull/210).
+
 ## [3.2.33] - 2026-09-07
 ### Fixed
 - Packaging: the Fable content glob is no longer recursive, so the package no longer ships generated obj AssemblyInfo files; only Earcut.fs is packed under fable/.
@@ -77,6 +85,7 @@ while the last digits indicate the release number of this F# port.
 
 
 
+[3.2.41]: https://github.com/goswinr/Earcut/compare/3.2.33...3.2.41
 [3.2.33]: https://github.com/goswinr/Earcut/compare/3.2.32...3.2.33
 [3.2.32]: https://github.com/goswinr/Earcut/compare/3.2.31...3.2.32
 [3.2.31]: https://github.com/goswinr/Earcut/compare/3.0.24...3.2.31
