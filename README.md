@@ -287,6 +287,25 @@ then build to JS with:
 build to JS with `dotnet fable` <br>
 run tests with `node Test/test.js`
 
+## Run Benchmarks
+
+For .NET, build the Release library and benchmark large polygons:
+
+```sh
+dotnet build -c Release
+dotnet fsi Test/bench/bench-large.fsx
+```
+
+For Fable/JS, build with `dotnet fable` and run:
+
+```sh
+node Test/bench/bench-large.js
+node Test/bench/bench-tiles.js
+node Test/bench/bench-refine.js
+```
+
+The large-polygon benchmarks cover regular 10k/100k polygons, a concave star, a random-radius ring, and a rectangle with collinear boundary vertices. They report the median and range of five measured calls after one warmup. Run before/after versions in separate processes.
+
 ## Images of test cases
 
 bad-diagonals:

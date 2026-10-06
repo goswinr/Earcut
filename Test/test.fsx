@@ -190,6 +190,20 @@ runTest "infinite-loop" (fun () ->
         false
 )
 
+runTest "large convex polygon" (fun () ->
+    // A strictly convex ring skips the point checks of ear slicing. Without this,
+    // each hashed check of its fan of long triangles scans a large part of the ring.
+    let n = 100000
+    let vertices = Array.zeroCreate (2 * n)
+    for i = 0 to n - 1 do
+        let angle = 2.0 * Math.PI * float i / float n
+        vertices.[2 * i] <- Math.Cos angle
+        vertices.[2 * i + 1] <- Math.Sin angle
+    let triangles = earcut(vertices, null, 2)
+    assertEqual (n - 2) (triangles.Count / 3) "large convex polygon: n - 2 triangles" &&
+    assertOk (deviation(vertices, null, 2, triangles) < 1e-12) "large convex polygon: deviation < 1e-12"
+)
+
 // ============================================================
 // Refine tests (port of the upstream refine unit tests)
 // ============================================================

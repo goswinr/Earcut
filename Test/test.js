@@ -169,6 +169,16 @@ test('infinite-loop', () => {
     earcut([1, 2, 2, 2, 1, 2, 1, 1, 1, 2, 4, 1, 5, 1, 3, 2, 4, 2, 4, 1], [5], 2);
 });
 
+test('large convex polygon', () => {
+    // A strictly convex ring skips the point checks of ear slicing. Without this,
+    // each hashed check of its fan of long triangles scans a large part of the ring.
+    const n = 100000, vertices = [];
+    for (let i = 0; i < n; i++) vertices.push(Math.cos(2 * Math.PI * i / n), Math.sin(2 * Math.PI * i / n));
+    const triangles = earcut(vertices, null, 2);
+    assert.equal(triangles.length / 3, n - 2);
+    assert.ok(deviation(vertices, null, 2, triangles) < 1e-12);
+});
+
 test('refine improves a bad quad diagonal', () => {
     const vertices = [0, 0, 3, 0, 10, 1, 0, 2];
     const triangles = [2, 3, 0, 2, 0, 1];

@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 The first three digits of the version number (e.g. `3.0.2`) correspond to the original Mapbox Earcut version,
 while the last digits indicate the release number of this F# port.
 
+## [Unreleased]
+### Fixed
+- Avoid quadratic point checks when triangulating large strictly convex polygons, porting [mapbox/earcut#212](https://github.com/mapbox/earcut/pull/212). The hashed ear-slicing loop skips point checks until a candidate fails its convexity check.
+### Added
+- The upstream 100,000-vertex convex polygon regression test in both the .NET and Fable/JS test suites, checking triangle count and area deviation.
+- Large-polygon benchmarks for .NET and Fable/JS, with concave and collinear control cases.
+
 ## [3.2.41] - 2026-10-04
 ### Changed
 - Port of Mapbox Earcut version 3.2.4. Its other two fixes, [mapbox/earcut#207](https://github.com/mapbox/earcut/issues/207) and [mapbox/earcut#208](https://github.com/mapbox/earcut/issues/208), were already ported in 3.2.32.
@@ -85,6 +92,7 @@ while the last digits indicate the release number of this F# port.
 
 
 
+[Unreleased]: https://github.com/goswinr/Earcut/compare/3.2.41...HEAD
 [3.2.41]: https://github.com/goswinr/Earcut/compare/3.2.33...3.2.41
 [3.2.33]: https://github.com/goswinr/Earcut/compare/3.2.32...3.2.33
 [3.2.32]: https://github.com/goswinr/Earcut/compare/3.2.31...3.2.32

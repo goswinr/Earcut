@@ -2,10 +2,10 @@
 
 // https://github.com/mapbox/earcut
 
-// https://github.com/mapbox/earcut/blob/9e70986eb94054c621c926888dd05bc26bffb902/src/earcut.js
+// https://github.com/mapbox/earcut/blob/2c222c75de7a5552d74740ec781258e1b0f006f8/src/earcut.js
 
 
-// v3.2.4 from 2026-09-28
+// v3.2.4 with PR #212 from 2026-10-06
 
 
 module Earcut
@@ -560,6 +560,21 @@ let internal filterPointsIfChanged(ws: Workspace, start: Node) : Node =
     let filtered = filterPoints(ws, start, start)
     if ws.filteredOut then filtered else Unchecked.defaultof<Node>
 
+// check whether every vertex of a ring is strictly convex
+let internal isConvex(start: Node) : bool =
+    let mutable p = start
+    let mutable convex = true
+    let mutable continueLoop = true
+    // do-while loop: execute once then check condition
+    while continueLoop do
+        if area(p.prev, p, p.next) >= 0.0 then
+            convex <- false
+            continueLoop <- false
+        else
+            p <- p.next
+            continueLoop <- p =!= start
+    convex
+
 // check whether a polygon node forms a valid ear with adjacent nodes
 let internal isEar(ear: Node) : bool =
     // reflex check (area(a, b, c) >= 0) is hoisted into the earcutLinked caller
@@ -703,6 +718,9 @@ and internal earcutLinked(ws: Workspace, ear: Node, triangles: ResizeArray<int>,
     let mutable ear = ear
     let mutable stop = ear
     let mutable cured = false
+    // a strictly convex ring has no vertex that could block an ear, so skip the point checks until a candidate fails;
+    // without this, a big convex ring is cut as one fan of long triangles and each hashed check scans O(n) points
+    let mutable convex = invSize <> 0.0 && isConvex(ear)
     let mutable continueLoop = true
 
     // iterate through ears, slicing them one by one
@@ -711,7 +729,7 @@ and internal earcutLinked(ws: Workspace, ear: Node, triangles: ResizeArray<int>,
         let next = ear.next
 
         if area(prev, ear, next) < 0.0 &&
-            (if invSize <> 0.0 then isEarHashed(ear, minX, minY, invSize) else isEar(ear)) then
+            (convex || (if invSize <> 0.0 then isEarHashed(ear, minX, minY, invSize) else isEar(ear))) then
             // cut off the triangle
             triangles.Add(prev.i)
             triangles.Add(ear.i)
@@ -721,6 +739,7 @@ and internal earcutLinked(ws: Workspace, ear: Node, triangles: ResizeArray<int>,
             ear <- next
             stop <- next
         else
+            convex <- false
             ear <- next
 
             // if we looped through the whole remaining polygon and can't find any more ears
