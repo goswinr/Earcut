@@ -1116,16 +1116,13 @@ let flatten(data: float[][][])  =
     let holes = ResizeArray<int>()
     let dimensions = data.[0].[0].Length
     let mutable holeIndex = 0
-    let mutable prevLen = 0
 
     for ring in data do
         for p in ring do
             for d = 0 to dimensions - 1 do
                 vertices.Add(p.[d])
-        if prevLen > 0 then
-            holeIndex <- holeIndex + prevLen
-            holes.Add(holeIndex)
-        prevLen <- ring.Length
+        if holeIndex > 0 && ring.Length > 0 then holes.Add(holeIndex) // skip empty rings
+        holeIndex <- holeIndex + ring.Length
 
     {|vertices = vertices.ToArray(); holes = holes.ToArray(); dimensions = dimensions|}
 

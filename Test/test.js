@@ -23,6 +23,13 @@ test('empty', () => {
     assert.deepEqual(earcut([], null, 2), []);
 });
 
+test('flatten skips empty rings', () => {
+    const outer = [[0, 0], [10, 0], [10, 10], [0, 10]], hole = [[2, 2], [4, 2], [3, 4]];
+    assert.deepEqual(flatten([outer, hole, []]), flatten([outer, hole]));
+    const {vertices, holes, dimensions} = flatten([outer, []]);
+    assert.deepEqual(earcut(vertices, holes, dimensions), earcut(flatten([outer]).vertices, null, 2)); // add dims for F# version
+});
+
 test('deviation zero-area handling', () => {
     const collinear = [0.1, 0.2, 1.3, 2.6, 2.5, 5.0, 3.7, 7.4];
     const collinearTriangles = earcut(collinear, null, 2);

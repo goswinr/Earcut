@@ -93,6 +93,17 @@ runTest "empty" (fun () ->
     assertDeepEqual (ResizeArray<int>()) indices "empty"
 )
 
+runTest "flatten skips empty rings" (fun () ->
+    let outer = [| [|0.0; 0.0|]; [|10.0; 0.0|]; [|10.0; 10.0|]; [|0.0; 10.0|] |]
+    let hole = [| [|2.0; 2.0|]; [|4.0; 2.0|]; [|3.0; 4.0|] |]
+    let withEmpty = flatten [| outer; hole; [||] |]
+    let withoutEmpty = flatten [| outer; hole |]
+    let data = flatten [| outer; [||] |]
+    assertEqual withoutEmpty.vertices withEmpty.vertices "flatten skips empty rings: vertices" &&
+    assertEqual withoutEmpty.holes withEmpty.holes "flatten skips empty rings: holes" &&
+    assertDeepEqual (earcut((flatten [| outer |]).vertices, null, 2)) (earcut(data.vertices, data.holes, data.dimensions)) "flatten skips empty rings: earcut"
+)
+
 runTest "deviation zero-area handling" (fun () ->
     let collinear = [| 0.1; 0.2; 1.3; 2.6; 2.5; 5.0; 3.7; 7.4 |]
     let collinearTriangles = earcut(collinear, null, 2)

@@ -11,6 +11,7 @@ while the last digits indicate the release number of this F# port.
 ## [Unreleased]
 ### Fixed
 - Avoid quadratic point checks when triangulating large strictly convex polygons, porting [mapbox/earcut#212](https://github.com/mapbox/earcut/pull/212). The hashed ear-slicing loop skips point checks until a candidate fails its convexity check.
+- `flatten` skips empty rings instead of adding a hole index for them, which made `earcut` fail on an empty last ring, porting [mapbox/earcut#214](https://github.com/mapbox/earcut/pull/214).
 ### Added
 - The upstream 100,000-vertex convex polygon regression test in both the .NET and Fable/JS test suites, checking triangle count and area deviation.
 - Large-polygon benchmarks for .NET and Fable/JS, with concave and collinear control cases.
