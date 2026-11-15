@@ -124,7 +124,7 @@ If you need the opposite orientation (e.g. for back-face culling or normals in 3
 
 If your points are objects with `x`/`y` (or `X`/`Y`) properties, you can use the convenience functions
 `earcutTrianglesFromMembersxy` and `earcutTrianglesFromMembersXY` instead of manually flattening coordinates.
-They accept a `ResizeArray` of points and an optional list of holes (also as `ResizeArray`s of points),
+They accept an `IList` of points (a `ResizeArray`, an array, ...) and an optional list of holes (also as `IList`s of points),
 and return a flat `float[]` of triangle vertex coordinates `[x0, y0, x1, y1, x2, y2, ...]`.
 Every six consecutive values represent a triangle.
 
@@ -148,7 +148,7 @@ let triangles = outerPoly.Points |> Earcut.earcutTrianglesFromMembersXY holes
 ```
 
 If your coordinates are already flat lists of numbers `[x0, y0, x1, y1, ...]`, use `Earcut.earcutTriangles` in the same way.
-It takes a `ResizeArray<float>` per ring and also returns the flat `float[]` of triangle coordinates.
+It takes an `IList<float>` (a `ResizeArray<float>` or `float[]`) per ring and also returns the flat `float[]` of triangle coordinates.
 
 All three functions skip empty holes.
 

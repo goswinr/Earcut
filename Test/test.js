@@ -457,3 +457,13 @@ test('earcutTriangles returns triangle coordinates and skips empty holes', () =>
     assert.deepEqual(earcutTriangles([[]], boundary), plain);
     assert.deepEqual(earcutTriangles([[], hole, []], boundary), holed);
 });
+
+test('earcutTriangles accepts typed arrays as well as plain arrays', () => {
+    const boundary = [0, 0, 10, 0, 10, 10, 0, 10];
+    const hole = [2, 2, 4, 2, 4, 4, 2, 4];
+    const typedBoundary = new Float64Array(boundary);
+    const typedHole = new Float64Array(hole);
+    assert.deepEqual(earcutTriangles(null, typedBoundary), earcutTriangles(null, boundary));
+    assert.deepEqual(earcutTriangles([typedHole], typedBoundary), earcutTriangles([hole], boundary));
+    assert.deepEqual(earcutTriangles([new Float64Array(0), typedHole], typedBoundary), earcutTriangles([hole], boundary));
+});

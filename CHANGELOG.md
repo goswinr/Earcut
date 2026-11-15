@@ -4,10 +4,10 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-The first three digits of the version number (e.g. `3.0.2`) correspond to the original Mapbox Earcut version,
+The first three digits of the version number correspond to the original Mapbox Earcut version (e.g. `3.2.42` = original Earcut 3.2.4),
 while the last digits indicate the release number of this F# port. So the version numbers do not follow Semantic Versioning.
 
-## [Unreleased]
+## [3.2.42] - 2026-11-15
 ### Fixed
 - Avoid quadratic point checks when triangulating large strictly convex polygons, porting [mapbox/earcut#212](https://github.com/mapbox/earcut/pull/212). The hashed ear-slicing loop skips point checks until a candidate fails its convexity check.
 - `flatten` skips empty rings instead of adding a hole index for them, which made `earcut` fail on an empty last ring, porting [mapbox/earcut#214](https://github.com/mapbox/earcut/pull/214).
@@ -20,6 +20,8 @@ while the last digits indicate the release number of this F# port. So the versio
 - Dropped redundant liveness checks in the hole-bridge search, porting [mapbox/earcut#217](https://github.com/mapbox/earcut/pull/217). Results are unchanged.
 - Fable/JS Release builds are about 1.5 times faster for `earcut` and about 4 times faster for `refine`, back on par with the JS original. Array access now goes through the internal `Arr` and `ResizeArr` helpers, which emit plain `a[i]` instead of the bounds-checked `item()` and `setItem()` calls of Fable 5. Debug builds keep the checks. As in the original, malformed input no longer raises an index error in Release builds, so use `validate` if the input is not trusted.
 - `earcut` and `deviation` raise an `ArgumentException` if `dimensions` is below 2. Before, this was an `IndexOutOfRangeException`, and with unchecked array access 0 would never return.
+- `earcutTriangles`, `earcutTrianglesFromMembersxy` and `earcutTrianglesFromMembersXY` take any `IList` (for example a `ResizeArray` or an array) for the outer ring and for each hole, instead of requiring a `ResizeArray`. Source compatible, but `earcutTriangles` is now generic over the hole type.
+- Packaging: SourceLink now comes from the .NET SDK instead of the `Microsoft.SourceLink.GitHub` package, the `fable-all` NuGet tag is dropped and the copyright years are 2025-2026. Fable is pinned to 5.27.0 for development.
 ### Added
 - Tests for `validate`, `earcutTriangles`, `earcutTrianglesFromMembersxy`, `earcutTrianglesFromMembersXY` and for the merge order of tied holes.
 - `LICENSE.md` contains the ISC license notice of the original Mapbox Earcut next to the MIT license. It is included in the NuGet package.
@@ -104,7 +106,8 @@ while the last digits indicate the release number of this F# port. So the versio
 
 
 
-[Unreleased]: https://github.com/goswinr/Earcut/compare/3.2.41...HEAD
+[Unreleased]: https://github.com/goswinr/Earcut/compare/3.2.42...HEAD
+[3.2.42]: https://github.com/goswinr/Earcut/compare/3.2.41...3.2.42
 [3.2.41]: https://github.com/goswinr/Earcut/compare/3.2.33...3.2.41
 [3.2.33]: https://github.com/goswinr/Earcut/compare/3.2.32...3.2.33
 [3.2.32]: https://github.com/goswinr/Earcut/compare/3.2.31...3.2.32

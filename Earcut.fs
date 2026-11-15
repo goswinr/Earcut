@@ -65,13 +65,8 @@ let inline internal imul (a: int) (b: int) : int =
     #endif
 
 
-
 module internal Arr =
 
-    /// Just Array.zeroCreate<Node> in .NET, but when `RELEASE` is defined and used in Fable, it emits `new Array(len)`
-    /// without initializing the items to their default value.
-    /// Values are `undefined` in JavaScript
-    /// Not safe on numbers, Fable emits TypedArrays for numeric arrays.
     let inline zeroCreateUndef (len:int) : Node [] = //
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
             Fable.Core.JsInterop.emitJsExpr (len) "new Array($0)"
@@ -79,21 +74,6 @@ module internal Arr =
             Array.zeroCreate<Node> len
         #endif
 
-    let inline undefCreateFloat64 (count:int) : float[] =
-        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
-            Fable.Core.JsInterop.emitJsExpr (count) "new Float64Array($0)"
-        #else
-            Array.zeroCreate<float> count
-        #endif
-
-    let inline undefCreateInt (count:int) : int[] =
-        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
-            Fable.Core.JsInterop.emitJsExpr (count) "new Int32Array($0)"
-        #else
-            Array.zeroCreate<int> count
-        #endif
-
-    /// just arr.[idx], but optimized and unchecked in Fable
     let inline getIdx (idx:int) (arr: 'T[]) : 'T=
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
             Fable.Core.JsInterop.emitJsExpr (arr,idx) "$0[$1]"
@@ -101,7 +81,6 @@ module internal Arr =
             arr.[idx]
         #endif
 
-    /// just arr.[idx] <- value, but optimized and unchecked in Fable
     let inline setIdx (idx:int) (value:'T) (arr: 'T[]) : unit =
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
             Fable.Core.JsInterop.emitJsStatement (arr,idx,value) "$0[$1] = $2"
@@ -109,8 +88,6 @@ module internal Arr =
             arr.[idx] <- value
         #endif
 
-
-    /// returns arr.Length , but optimized and unchecked in Fable
     let inline len (arr: 'T[]) : int =
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
             Fable.Core.JsInterop.emitJsExpr (arr) "$0.length" // avoid call to count() in fable lib
@@ -118,19 +95,31 @@ module internal Arr =
             arr.Length
         #endif
 
+module internal ILst =
 
-/// An internal module with functions for working with ResizeArray<'T>.
-module internal ResizeArr =
-
-    /// returns a clone of the ResizeArray, but optimized and unchecked in Fable
-    let inline clone (resizeArray: ResizeArray<'T>) : ResizeArray<'T>=
+    let inline getIdx (idx:int) (iLst: IList<'T>) : 'T=
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
-            Fable.Core.JsInterop.emitJsExpr (resizeArray) "$0.slice()"
+            Fable.Core.JsInterop.emitJsExpr (iLst,idx) "$0[$1]"
         #else
-            resizeArray.GetRange(0, resizeArray.Count)
+            iLst.[idx]
         #endif
 
-    /// just resizeArray.[idx], but optimized and unchecked in Fable
+    let inline setIdx (idx:int) (value:'T) (iLst: IList<'T>) : unit =
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsStatement (iLst,idx,value) "$0[$1] = $2"
+        #else
+            iLst.[idx] <- value
+        #endif
+
+    let inline len (iLst: IList<'T>) : int =
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsExpr (iLst) "$0.length" // avoid call to count() in fable lib
+        #else
+            iLst.Count
+        #endif
+
+module internal ResizeArr =
+
     let inline getIdx (idx:int) (resizeArray: ResizeArray<'T>) : 'T=
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
             Fable.Core.JsInterop.emitJsExpr (resizeArray,idx) "$0[$1]"
@@ -138,8 +127,6 @@ module internal ResizeArr =
             resizeArray.[idx]
         #endif
 
-
-    /// just resizeArray.[idx] <- value, but optimized and unchecked in Fable
     let inline setIdx (idx:int) (value:'T) (resizeArray: ResizeArray<'T>) : unit =
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
             Fable.Core.JsInterop.emitJsStatement (resizeArray,idx,value) "$0[$1] = $2"
@@ -147,8 +134,6 @@ module internal ResizeArr =
             resizeArray.[idx] <- value
         #endif
 
-
-    /// returns resizeArray.Count , but optimized and unchecked in Fable
     let inline len (resizeArray: ResizeArray<'T>) : int =
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
             Fable.Core.JsInterop.emitJsExpr (resizeArray) "$0.length" // avoid call to count() in fable lib
@@ -156,7 +141,6 @@ module internal ResizeArr =
             resizeArray.Count
         #endif
 
-    /// returns resizeArray.Count - 1 , but optimized and unchecked in Fable
     let inline lastIdx  (resizeArray: ResizeArray<'T>) : int =
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
             Fable.Core.JsInterop.emitJsExpr (resizeArray) "$0.length - 1" // avoid call to count() in fable lib
@@ -164,8 +148,6 @@ module internal ResizeArr =
             resizeArray.Count - 1
         #endif
 
-    /// this is more efficient than ResizeArray.Clear() in Fable,
-    /// which emits .splice(0)
     let inline clear (arr: ResizeArray<'T>) : unit =
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
             Fable.Core.JsInterop.emitJsStatement arr "$0.length = 0"
@@ -173,16 +155,6 @@ module internal ResizeArr =
             arr.Clear()
         #endif
 
-    /// just arr.RemoveAt(arr.Count - 1) , but optimized and unchecked in Fable
-    let inline popOff (arr: ResizeArray<'T>) : unit =
-        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
-            Fable.Core.JsInterop.emitJsStatement (arr) "$0.pop()"
-        #else
-            arr.RemoveAt(arr.Count - 1)
-        #endif
-
-
-    /// just arr.RemoveAt(arr.Count - 1) , but optimized and unchecked in Fable
     let inline pop (arr: ResizeArray<'T>) : 'T =
         #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
             Fable.Core.JsInterop.emitJsExpr (arr) "$0.pop()"
@@ -192,12 +164,6 @@ module internal ResizeArr =
             v
         #endif
 
-    let inline map (mapping: 'T -> 'U) (resizeArray: ResizeArray<'T>) : ResizeArray<'U> =
-        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
-            Fable.Core.JsInterop.emitJsExpr (resizeArray, mapping) "$0.map($1)" // this works only because a ResizeArray is never a TypedArray in JS
-        #else
-            resizeArray.ConvertAll (System.Converter mapping) // would work in Fable too
-        #endif
 
 
 // Block-bbox index for findHoleBridge (issue #183): one [minX,minY,maxX,maxY] bbox per K
@@ -296,7 +262,7 @@ let internal buildBlockIndex(ws: Workspace, maxNodes: int, numHoles: int) : unit
     // trailing block per appended segment (outer ring + one per hole)
     let maxBlocks = (maxNodes + 2 * numHoles + K - 1) / K + numHoles + 2
     // every slot below numBlocks is written by indexSegment before it is read, so no initialization is needed
-    if blockBBox.Length < maxBlocks * 4 then ws.blockBBox <- Arr.undefCreateFloat64 (maxBlocks * 4)
+    if blockBBox.Length < maxBlocks * 4 then ws.blockBBox <- Array.zeroCreate<float> (maxBlocks * 4)
     if blockHead.Length < maxBlocks then
         ws.blockHead <- Arr.zeroCreateUndef maxBlocks
         ws.blockStop <- Arr.zeroCreateUndef maxBlocks
@@ -568,8 +534,8 @@ let internal radixPass(counts: int[], n: int, src: ResizeArray<Node>, srcZ: int[
 // than histogram setup), else LSD radix in four 8-bit passes (covering z's 30 bits)
 let internal sortNodes(ws: Workspace, n: int) : unit =
     if n > 32 && ws.zArr.Length < n then
-        ws.zArr <- Arr.undefCreateInt n
-        ws.zBuf <- Arr.undefCreateInt n
+        ws.zArr <- Array.zeroCreate<int> n
+        ws.zBuf <- Array.zeroCreate<int> n
         // Radix scatter writes by index, so capacity alone is not enough.
         while ws.sortBuf.Count < n do
             ws.sortBuf.Add(Unchecked.defaultof<Node>)
@@ -1153,7 +1119,6 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
 
 
 
-
 /// Validates the input data for the earcut function.
 /// Raises a descriptive System.ArgumentException if the input is invalid.
 /// Checks include:
@@ -1331,15 +1296,15 @@ let internal ensureScratch(ws: Workspace, n: int) : unit =
     let hTable = ws.hTable
     // edgeStack holds at most one entry per half-edge (edgeStamp dedups), so n is a safe cap -
     // sizing it up front lets the cascade push without a bounds/grow check.
-    // edgeStamp and hStamp rely on starting out all-zero, so they keep Array.zeroCreate;
-    // the others are fully written before they are read
-    if edgeStack.Length < n then ws.edgeStack <- Arr.undefCreateInt n
-    if he.Length < n then ws.he <- Arr.undefCreateInt n
+    // edgeStamp and hStamp rely on starting out all-zero; the others are fully written before they are read.
+    // Array.zeroCreate is used for all of them, Fable emits a (zero-filled) typed array for numeric arrays anyway
+    if edgeStack.Length < n then ws.edgeStack <- Array.zeroCreate<int> n
+    if he.Length < n then ws.he <- Array.zeroCreate<int> n
     if edgeStamp.Length < n then ws.edgeStamp <- Array.zeroCreate<int> n
     let mutable size = 1
     while size < n * 4 do size <- size <<< 1 // power-of-two table, load factor <= 0.25
     if hTable.Length < size then
-        ws.hTable <- Arr.undefCreateInt size
+        ws.hTable <- Array.zeroCreate<int> size
         ws.hStamp <- Array.zeroCreate<int> size
     ws.hMask <- size - 1
 
@@ -1476,38 +1441,38 @@ let refine(triangles: ResizeArray<int>, coords: array<float>, dim: int) : unit =
                         i <- i + 1
 
 
-///<summary> Triangulates a polygon with holes, given as ResizeArrays of flat x and y coordinates like [x0, y0, x1, y1, x2, y2, ...].</summary>
-/// <param name="holes">An IList of holes, where each hole is an ResizeArray of x and y . Use `null` or empty array if there are no holes. Empty holes are skipped.</param>
-/// <param name="boundary">An ResizeArray of x and y coordinates representing the outer polygon.</param>
+///<summary> Triangulates a polygon with holes, given as ILists (ResizeArray, array, ...) of flat x and y coordinates like [x0, y0, x1, y1, x2, y2, ...].</summary>
+/// <param name="holes">An IList of holes, where each hole is an IList of flat x and y coordinates. Use `null` or empty array if there are no holes. Empty holes are skipped.</param>
+/// <param name="boundary">An IList of flat x and y coordinates representing the outer polygon.</param>
 /// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
 /// Every six consecutive values represent a triangle in 2D space.</returns>
-let earcutTriangles(holes: IList<ResizeArray<float>>) (boundary: ResizeArray<float>) : float[] =
+let earcutTriangles(holes: IList<#IList<float>>) (boundary: IList<float>) : float[] =
     let holes = if holes = null then ResizeArray() :> IList<_> else holes
-    let mutable size = boundary.Count
-    for k = 0 to holes.Count - 1 do
-        let hole = holes.[k]
-        size <- size + hole.Count
+    let mutable size = ILst.len boundary
+    for k = 0 to ILst.len holes - 1 do
+        let hole = ILst.getIdx k holes
+        size <- size + ILst.len hole
 
-    let mutable ii = boundary.Count
-    let holesIdx = ResizeArray<int>(holes.Count)
+    let mutable ii = ILst.len boundary
+    let holesIdx = ResizeArray<int>(ILst.len holes)
     let xys = Array.zeroCreate<float> size
-    for i=0 to boundary.Count - 1 do
-        Arr.setIdx i (ResizeArr.getIdx i boundary) xys
+    for i=0 to ILst.len boundary - 1 do
+        Arr.setIdx i (ILst.getIdx i boundary) xys
 
-    for j = 0 to holes.Count - 1 do
-        let hole = holes.[j]
-        if hole.Count > 0 then // skip empty holes like flatten does, earcut can't handle a hole without points
+    for j = 0 to ILst.len holes - 1 do
+        let hole = ILst.getIdx j holes
+        if ILst.len hole > 0 then // skip empty holes like flatten does, earcut can't handle a hole without points
             holesIdx.Add(ii/2) // divide by 2 because xys is a flat array of coordinates
-            for k=0 to hole.Count - 1 do
-                Arr.setIdx (ii+k) (ResizeArr.getIdx k hole) xys
-            ii <- ii + hole.Count
+            for k=0 to ILst.len hole - 1 do
+                Arr.setIdx (ii+k) (ILst.getIdx k hole) xys
+            ii <- ii + ILst.len hole
 
     let triaIdxs = earcut(xys, holesIdx.ToArray(), 2)
 
-    let len = triaIdxs.Count * 2
+    let len = ResizeArr.len triaIdxs * 2
     let trias = Array.zeroCreate<float> len
     let mutable j = 0
-    for i=0 to triaIdxs.Count - 1 do
+    for i=0 to ResizeArr.lastIdx triaIdxs do
         let xIdx = ResizeArr.getIdx i triaIdxs * 2
         Arr.setIdx j (Arr.getIdx xIdx xys) trias
         j <- j + 1
@@ -1518,15 +1483,16 @@ let earcutTriangles(holes: IList<ResizeArray<float>>) (boundary: ResizeArray<flo
     trias
 
 // The two SRTP wrappers below are public inline functions, which can't call the internal
-// Arr / ResizeArr helpers, so they use plain indexing.
+// Arr / ILst / ResizeArr helpers, so they use plain indexing.
 
 ///<summary> Triangulates a polygon with holes, given as arrays of objects with x and y properties (lowercase).
 /// Any object with x and y properties will work as a point object. (via F# statically resolved type parameters)</summary>
-/// <param name="holes">An IList of holes, where each hole is an ResizeArray of points. Use `null` or empty array if there are no holes. Empty holes are skipped.</param>
-/// <param name="pts">An ResizeArray of points representing the outer polygon.</param>
+/// <param name="holes">An IList of holes, where each hole is an IList of points. Use `null` or empty array if there are no holes. Empty holes are skipped.</param>
+/// <param name="pts">An IList of points representing the outer polygon.</param>
 /// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
 /// Every six consecutive values represent a triangle in 2D space.</returns>
-let inline earcutTrianglesFromMembersxy (holes: IList<ResizeArray<'T>>) (pts: ResizeArray<'T>) : float[] when 'T : (member x: float) and 'T : (member y: float) =
+let inline earcutTrianglesFromMembersxy (holes: IList<#IList<'T>>) (pts: IList<'T>) : float[] when 'T : (member x: float) and 'T : (member y: float) =
+    // TODO index get and set could be optimized using local inlined Arr / ResizeArr helpers
     let holes = if holes = null then ResizeArray() :> IList<_> else holes
     let mutable size = pts.Count * 2
     for hole in holes do
@@ -1568,11 +1534,12 @@ let inline earcutTrianglesFromMembersxy (holes: IList<ResizeArray<'T>>) (pts: Re
 
 ///<summary> Triangulates a polygon with holes, given as arrays of objects with X and Y properties (Uppercase).
 /// Any object with X and Y properties will work as a point object. (via F# statically resolved type parameters)</summary>
-/// <param name="holes">An IList of holes, where each hole is an ResizeArray of points. Use `null` or empty array if there are no holes. Empty holes are skipped.</param>
-/// <param name="pts">An ResizeArray of points representing the outer polygon.</param>
+/// <param name="holes">An IList of holes, where each hole is an IList of points. Use `null` or empty array if there are no holes. Empty holes are skipped.</param>
+/// <param name="pts">An IList of points representing the outer polygon.</param>
 /// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
 /// Every six consecutive values represent a triangle in 2D space.</returns>
-let inline earcutTrianglesFromMembersXY (holes: IList<ResizeArray<'T>>) (pts: ResizeArray<'T>) : float[] when 'T : (member X: float) and 'T : (member Y: float) =
+let inline earcutTrianglesFromMembersXY (holes: IList<#IList<'T>>) (pts: IList<'T>) : float[] when 'T : (member X: float) and 'T : (member Y: float) =
+    // TODO index get and set could be optimized using local inlined Arr / ResizeArr helpers
     let holes = if holes = null then ResizeArray() :> IList<_> else holes
     let mutable size = pts.Count * 2
     for hole in holes do

@@ -731,6 +731,28 @@ runTest "convenience wrappers return triangle coordinates and skip empty holes" 
     assertEqual holed (earcutTrianglesFromMembersXY [| toUpper hole; ResizeArray<PointUpper>() |] (toUpper boundary)) "earcutTrianglesFromMembersXY: empty holes are skipped"
 )
 
+runTest "convenience wrappers accept any IList for the outer ring and the holes" (fun () ->
+    let boundary = [| 0.0; 0.0; 10.0; 0.0; 10.0; 10.0; 0.0; 10.0 |]
+    let hole = [| 2.0; 2.0; 4.0; 2.0; 4.0; 4.0; 2.0; 4.0 |]
+    let toLower (xys: float[]) = [| for i in 0 .. 2 .. xys.Length - 2 -> { PointLower.x = xys.[i]; y = xys.[i + 1] } |]
+    let toUpper (xys: float[]) = [| for i in 0 .. 2 .. xys.Length - 2 -> { PointUpper.X = xys.[i]; Y = xys.[i + 1] } |]
+
+    // reference result from the ResizeArray overloads
+    let plain = earcutTriangles null (ResizeArray boundary)
+    let holed = earcutTriangles [| ResizeArray hole |] (ResizeArray boundary)
+    assertEqual plain (earcutTriangles null boundary) "earcutTriangles: array boundary" &&
+    assertEqual holed (earcutTriangles [| hole |] boundary) "earcutTriangles: array of array holes" &&
+    assertEqual holed (earcutTriangles (ResizeArray [ hole ]) boundary) "earcutTriangles: ResizeArray of array holes" &&
+    assertEqual holed (earcutTriangles [| ResizeArray hole |] boundary) "earcutTriangles: array of ResizeArray holes with array boundary" &&
+    assertEqual holed (earcutTriangles [| [||]; hole |] boundary) "earcutTriangles: empty array holes are skipped" &&
+    assertEqual plain (earcutTrianglesFromMembersxy null (toLower boundary)) "earcutTrianglesFromMembersxy: array of points" &&
+    assertEqual holed (earcutTrianglesFromMembersxy [| toLower hole |] (toLower boundary)) "earcutTrianglesFromMembersxy: array of array holes" &&
+    assertEqual holed (earcutTrianglesFromMembersxy [| [||]; toLower hole |] (toLower boundary)) "earcutTrianglesFromMembersxy: empty array holes are skipped" &&
+    assertEqual plain (earcutTrianglesFromMembersXY null (toUpper boundary)) "earcutTrianglesFromMembersXY: array of points" &&
+    assertEqual holed (earcutTrianglesFromMembersXY [| toUpper hole |] (toUpper boundary)) "earcutTrianglesFromMembersXY: array of array holes" &&
+    assertEqual holed (earcutTrianglesFromMembersXY [| [||]; toUpper hole |] (toUpper boundary)) "earcutTrianglesFromMembersXY: empty array holes are skipped"
+)
+
 // Print summary
 printfn ""
 printfn "=================="

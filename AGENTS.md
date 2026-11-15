@@ -146,22 +146,23 @@ Fable, and passes it down as `ws`. This is what makes `earcut` and `refine` thre
 
 Fable 5 compiles `arr.[i]` and `arr.[i] <- v` to bounds-checked `item()`/`setItem()` library
 calls, which made `earcut` about 1.5x and `refine` about 4x slower than upstream JS. Fable has no
-switch for this, so indexing goes through the internal `Arr` (arrays) and `ResizeArr`
-(`ResizeArray`) modules at the top of `Earcut.fs`:
+switch for this, so indexing goes through the internal `Arr` (arrays), `ILst` (`IList`) and
+`ResizeArr` (`ResizeArray`) modules at the top of `Earcut.fs`:
 
-- Write `Arr.getIdx i arr` and `Arr.setIdx i value arr` (same for `ResizeArr`), never `.[i]`, in
-  any internal code. Also use `ResizeArr.clear`, `ResizeArr.pop` and, for arrays whose content is
-  fully written before it is read, `Arr.undefCreateInt` / `Arr.undefCreateFloat64` /
-  `Arr.zeroCreateUndef`. Arrays that rely on starting out zeroed (`edgeStamp`, `hStamp`) keep
-  `Array.zeroCreate`. Avoid `for x in arr`, which also compiles to `item()`.
+- Write `Arr.getIdx i arr` and `Arr.setIdx i value arr` (same for `ILst` and `ResizeArr`), never
+  `.[i]`, in any internal code. Also use `len` (`.Length` / `.Count`), `ResizeArr.lastIdx`,
+  `ResizeArr.clear`, `ResizeArr.pop` and, for arrays of `Node`, `Arr.zeroCreateUndef` (emits
+  `new Array(len)` in Fable Release). Numeric arrays just use `Array.zeroCreate`: Fable emits a
+  zero-filled typed array for them anyway, so there is no "uninitialized" variant.
+  Avoid `for x in arr`, which also compiles to `item()`.
 - The helpers emit raw `a[i]` only when both `RELEASE` and a Fable JS/TS symbol are defined.
   `dotnet fable` defines `RELEASE` by default, `dotnet fable watch` and `-c Debug` do not and keep
   the checks. On .NET they are plain indexing with the usual bounds checks.
 - Public `inline` functions (the two SRTP wrappers) cannot call these internal helpers and use
-  plain indexing.
+  plain indexing (marked with a TODO in the source).
 - To verify after a change: `grep -c "item(" Earcut.fs.js` should only count the few cold call
-  sites (error messages in `validate`, the first lines of `flatten`, the `IList` of holes in
-  `earcutTriangles`), and the benchmarks should stay on par with upstream.
+  sites (error messages in `validate`, the first lines of `flatten`; currently 3), and the
+  benchmarks should stay on par with upstream.
 
 ### Public API surface (all in `module Earcut`)
 
@@ -173,7 +174,8 @@ switch for this, so indexing goes through the internal `Arr` (arrays) and `Resiz
 - `earcutTrianglesFromMembersxy` / `earcutTrianglesFromMembersXY` - convenience wrappers using F#
   **statically resolved type parameters** so any object with `x`/`y` (or `X`/`Y`) members works
   (e.g. Euclid's `Polyline2D.Points`). They return a flat `float[]` of triangle coordinates.
-- `earcutTriangles` - same idea but takes flat `ResizeArray<float>` boundary + holes.
+- `earcutTriangles` - same idea but takes flat `IList<float>` boundary + holes (a `ResizeArray<float>`,
+  `float[]`, ...). The wrappers above likewise take any `IList` of points and of holes.
 - `validate(vertices, holeIndices, dimensions)` - throws `ArgumentException` on malformed input
   (NaN/Infinity, wrong length, bad hole ordering, holes larger than outer ring, etc.).
 - `deviation(...)` - triangulation correctness metric. `flatten(data)` - GeoJSON-shaped nested
