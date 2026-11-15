@@ -5,14 +5,19 @@
 
 Earcut is an F# (and Fable/JS) port of [Mapbox's Earcut](https://github.com/mapbox/earcut)
 polygon triangulation library. All shippable code lives in a single file: [Earcut.fs](Earcut.fs).
-The library has **no dependencies** and is published to NuGet as a both a .NET library and a
+The library has **no dependencies** and is published to NuGet as both a .NET library and a
 Fable source package (the `.fs`/`.fsproj` sources are packed under `fable/` so Fable consumers
-compile the F# directly to JS).
+compile the F# directly to JS with their own Fable version).
+
+The exact upstream commit the port corresponds to is linked in the header comment of `Earcut.fs`.
+That link is the reference to diff against. When porting newer upstream commits, update it together
+with the status line in [README.md](README.md) and add a changelog entry.
 
 Versioning: the first three digits (e.g. `3.0.2`) track the upstream Mapbox Earcut version;
-trailing digits are the F# port's release number. See [CHANGELOG.md](CHANGELOG.md) - the build
-derives the package version from it via `Ionide.KeepAChangelog.Tasks`, so add a changelog entry
-under a new version heading when releasing.
+trailing digits are the F# port's release number (`3.2.41` is the first release of upstream `3.2.4`).
+See [CHANGELOG.md](CHANGELOG.md) - the build derives the package version from it via
+`Ionide.KeepAChangelog.Tasks`, so add a changelog entry under a new version heading when releasing.
+Until such a heading exists, local builds are still named after the last released version.
 
 Changelog gotcha: `Ionide.KeepAChangelog.Tasks` 0.3.3 crashes (`MSB4018` /
 `ArgumentOutOfRangeException` in `parseUnreleasedText`) on a bullet with an indented
@@ -34,16 +39,32 @@ There are two parallel test suites; when porting an upstream test, add it to bot
 - [Test/test.js](Test/test.js) is a hand-written port of upstream's `test/test.js` (`node:test`).
   It imports `Earcut.fs.js`, the gitignored Fable output of [Earcut.fs](Earcut.fs), so run
   `dotnet fable` first. Unlike upstream, `earcut` is a named export and always takes
-  `dimensions` explicitly (`earcut(vertices, holes, 2)`).
-- [Test/test.fsx](Test/test.fsx) is the .NET port of the same tests, run with `dotnet fsi`. It is
-  not part of the Fable build; thread-based tests are wrapped in `#if !FABLE_COMPILER`.
+  `dimensions` explicitly (`earcut(vertices, holes, 2)`); `refine` takes `dim` explicitly too.
+- [Test/test.fsx](Test/test.fsx) is the .NET port of the same tests, run with `dotnet fsi`. It
+  `#load`s `Earcut.fs` directly, so it needs no prior build. It is not part of the Fable build;
+  thread-based tests are wrapped in `#if !FABLE_COMPILER`. It adds two .NET-only tests: nested
+  splits on a 256 KB stack and concurrent `earcut`/`refine` calls.
 
-CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs only the JS suite:
-`dotnet fable --noCache` then `node Test/test.js`.
+CI: [test.yml](.github/workflows/test.yml) runs only the JS suite (`dotnet fable --noCache` then
+`node Test/test.js`), [build.yml](.github/workflows/build.yml) only compiles the .NET library.
+Nothing in CI runs `Test/test.fsx`, so run it locally after any change to `Earcut.fs`.
 
 To run a subset of the JS suite, filter by test name: `node --test-name-pattern="issue219" Test/test.js`.
 The .NET script has no filter - to isolate one case, edit the `fixtureIds` loop or comment out
 `runTest` calls.
+
+Benchmarks live in [Test/bench/](Test/bench/) and are run by hand, each version in a fresh process:
+
+```sh
+node Test/bench/bench-tiles.js     # earcut over the MVT fixture (after dotnet fable)
+node Test/bench/bench-refine.js    # refine over the MVT fixture
+node Test/bench/bench-large.js     # large single rings
+dotnet build -c Release && dotnet fsi Test/bench/bench-large.fsx   # large rings on .NET
+```
+
+The JS test and bench files carry a commented-out `// original JS version` import. To A/B against
+upstream, clone it at the pinned commit into the gitignored `mapbox-earcut/` folder and swap the
+import (the bench files already use the `../../mapbox-earcut/src/earcut.js` path).
 
 In Claude Code on the web the container has Node but no .NET SDK, so
 [.claude/hooks/session-start.sh](.claude/hooks/session-start.sh) installs SDK 10 into
@@ -56,11 +77,20 @@ command fails with `dotnet: command not found`, wait and retry rather than reins
 - [Test/fixtures/](Test/fixtures/) holds GeoJSON-style polygon inputs (shared with upstream),
   many named after the original `issueNN` they reproduce.
 - [Test/expected.json](Test/expected.json) holds, per fixture: expected triangle count,
-  the allowed `deviation` tolerance, and a separate tolerance for rotated variants.
-- Each fixture is run at 0/90/180/270° rotations. Some rotated cases are known-failing and are
-  documented in the comment block at the top of `test.fsx` - don't treat those as regressions.
+  the allowed `deviation` tolerance, and a separate tolerance for rotated variants. Its content
+  is kept identical to upstream's `test/expected.json`; copy it from upstream when porting rather
+  than tuning values locally.
+- [Test/bench/tiles-fixture.bin](Test/bench/tiles-fixture.bin) (119,680 real MVT polygons) is used
+  by both test suites and the benchmarks; every polygon must triangulate with zero deviation.
+- Each fixture is run at 0/90/180/270° rotations. Both suites pass completely, so treat any
+  failure as a regression. The `FAIL` lines in the comment block at the top of `test.fsx` are
+  historical results from running the script inside Rhino, not expected failures.
 - Correctness is checked via `Earcut.deviation` (relative area mismatch between triangulation
   and polygon), not exact triangle equality, because the algorithm trades correctness for speed.
+- The F#-only API (`validate`, `earcutTriangles`, `earcutTrianglesFromMembersxy/XY`) has no
+  tests in either suite. Add some when touching it.
+- `Test/draw-in-Rhino*.fsx` and `Test/test-and-draw-in-Rhino.fsx` are manual visual-debugging
+  scripts for Rhino with hard-coded local paths. They are not part of either suite.
 
 ## Architecture notes
 
@@ -70,21 +100,52 @@ Key consequences for editing:
 
 - The core works on a **circular doubly linked list** of `Node` records (`prev`/`next`), with a
   second `prevZ`/`nextZ` linkage for the z-order curve hash that accelerates ear-checking on
-  larger polygons (`isEarHashed` vs `isEar`).
+  larger polygons (`isEarHashed` vs `isEar`). `Node.z` doubles as the owning block index while
+  holes are being merged.
 - `Node` is a reference type compared by **identity**, not value. Use the custom operators
   `===`/`=!=` and the `isNull`/`notNull` helpers (built on `obj.ReferenceEquals` and
   `Unchecked.defaultof<Node>`) - not `=`/`null`/`Option`. This is how the JS `null`-as-sentinel
-  pattern is reproduced.
+  pattern is reproduced. `Node` is a cyclic record, so structural `=` on it would recurse around
+  the ring. The module-level `isNull` shadows the FSharp.Core one and only accepts a `Node`.
 - JS `do…while` loops are translated to F# `while continueLoop do` with an explicit
-  `continueLoop` flag and a body that runs once before the condition check. Preserve this shape.
-- The triangulation escalates through `pass` 0→1→2 in `earcutLinked`: plain ear slicing,
-  then `filterPoints`, then `cureLocalIntersections`, then `splitEarcut` as a last resort.
+  `continueLoop` flag and a body that runs once before the condition check. Early `return`,
+  `continue` and `break` become flags too (`result`, `hasEarlyReturn`, ...). Preserve this shape.
+- `earcutLinked` slices ears until a full lap finds none, then escalates: `filterPoints` for as
+  long as it removes nodes (`filterPointsIfChanged`), then `cureLocalIntersections` once (`cured`),
+  then `splitEarcut` as a last resort. `splitEarcut` does not recurse: it pushes both halves on
+  `ws.splitStack`, which `earcut` drains in a loop. There is no `pass` parameter any more.
+- Hole merging (`eliminateHoles`) uses a block-bbox index (`buildBlockIndex`, `indexSegment`,
+  `growBlock`, `K` edges per block) so `findHoleBridge` can skip whole blocks.
+
+### Scratch state: `Workspace`
+
+Upstream keeps its reusable scratch buffers in module-level variables. The port keeps them all in
+the `Workspace` record, cached per thread on .NET (`ThreadLocal`) and as a single instance under
+Fable, and passes it down as `ws`. This is what makes `earcut` and `refine` thread-safe on .NET.
+
+- When porting upstream code that adds module-level state, add a `Workspace` field instead. Never
+  add a module-level `mutable`.
+- State left behind by a call must be reset at the start of the next one (see `steiners.Clear()`,
+  `ws.numBlocks <- 0`, the `gen` stamp in `refine`), as in upstream.
+
+### How upstream idioms map to the port
+
+- Optional and default parameters are always explicit: `earcut(vertices, holes, dimensions)`,
+  `refine(triangles, coords, dim)`, `intersects(..., includeBoundary)`, and a full-ring
+  `filterPoints(start)` is written `filterPoints(ws, start, start)`.
+- Upstream's `removeNode` calls `growBlock` when `indexActive`. In the port that call lives in
+  `filterPoints`, the only remover that runs while the index is active, so `removeNode` needs no `ws`.
+- Typed arrays become `float[]` / `int[]` (`Uint8Array` and `Uint32Array` included), `Math.imul`
+  becomes the `imul` helper (emitted as `Math.imul` under Fable, wrapping `*` on .NET).
+- `#if FABLE_COMPILER...` blocks are the only place where the two targets differ. Keep them minimal.
 
 ### Public API surface (all in `module Earcut`)
 
 - `earcut(vertices, holeIndices, dimensions)` - the core entry point. Returns a `ResizeArray<int>`
   of indices into the **point** array (multiply by `dimensions` for the flat vertex array).
   `holeIndices` are point indices (not flat indices); pass `null` or `[||]` for no holes.
+- `refine(triangles, coords, dim)` - optional Delaunay post-pass (Lawson flips) that mutates the
+  triangle list in place, keeping the boundary, holes and triangle count.
 - `earcutTrianglesFromMembersxy` / `earcutTrianglesFromMembersXY` - convenience wrappers using F#
   **statically resolved type parameters** so any object with `x`/`y` (or `X`/`Y`) members works
   (e.g. Euclid's `Polyline2D.Points`). They return a flat `float[]` of triangle coordinates.
@@ -94,11 +155,44 @@ Key consequences for editing:
 - `deviation(...)` - triangulation correctness metric. `flatten(data)` - GeoJSON-shaped nested
   array → `{| vertices; holes; dimensions |}`.
 
+Everything else in the file is `internal`. `earcut` and `refine` do not validate: malformed input
+(an empty hole, a hole index past the end, an odd coordinate count) throws
+`NullReferenceException` or `IndexOutOfRangeException` on .NET.
+
+### Known gaps (measured 2026-11-16, remove an entry once it is fixed)
+
+- **Fable output is slower than upstream.** Fable 5 (every release from 5.0.0 to 5.27.0) compiles
+  `arr.[i]` and `arr.[i] <- v` to bounds-checked `item()`/`setItem()` library calls. On the MVT
+  benchmark with node 26 this makes `earcut` about 1.5x and `refine` about 3.5x slower than
+  upstream JS. Fable has no switch to turn this off. Routing indexing through `inline` accessors
+  that use `emitJsExpr "$0[$1]"` under Fable restores parity without changing .NET speed or any
+  result. Do not claim JS performance parity without running the benchmarks.
+- **.NET and JS can order tied holes differently.** `queue.Sort compareXYSlope` in
+  `eliminateHoles` is stable in JS but not on .NET, and the comparator returns 0 for NaN slopes
+  (Steiner points), which makes it non-transitive. Triangulations are identical between upstream,
+  Fable and .NET on all fixtures and the MVT set, but can differ on degenerate input with three or
+  more holes where some of them tie (same leftmost point with an equal or NaN slope). Do not
+  assume index-for-index equality there.
+- **Empty holes crash the convenience wrappers.** `flatten` skips empty rings, the three
+  `earcutTriangles*` wrappers do not, so an empty hole list entry ends in a `NullReferenceException`.
+
 ## Project constraints
 
 - Targets `netstandard2.0` only (since 3.2.31, replacing the earlier `net472;net6.0` targets).
 - `LangVersion=preview`; warnings are strict: `WarningLevel 5`, `--warnon:3390` (XML docstrings)
   and `--warnon:1182` (unused variables), plus `FsDocsWarnOnMissingDocs`. Keep public members
   documented and avoid unused bindings or the build will warn.
+- `FSharp.Core` is pinned low (6.0.7) and `Fable.Core` is only referenced under `FABLE_COMPILER`,
+  both on purpose; Dependabot is told to ignore them. Do not bump them as part of other work.
 - `bin/`, `obj/`, `fable_modules/` and the Fable output `Earcut.fs.js` are gitignored
   build/restore artifacts, not part of this library's sources.
+
+## Docs and release
+
+- [README.md](README.md) is the single source for the docs landing page and the NuGet readme:
+  [docs.yml](.github/workflows/docs.yml) copies it over the stub `Docs/index.md` before running
+  `fsdocs`, and [releaseNuget.yml](.github/workflows/releaseNuget.yml) rewrites its `<br>` tags
+  for nuget.org. Edit `README.md`, never `Docs/index.md`. Everything else under `Docs/` is copied
+  to the public docs site as-is.
+- A release is a pushed git tag equal to the newest version heading in `CHANGELOG.md`. The release
+  workflow runs the JS suite, builds, fails if tag and changelog version differ, then pushes to NuGet.

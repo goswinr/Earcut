@@ -63,6 +63,142 @@ let inline internal imul (a: int) (b: int) : int =
         a * b
     #endif
 
+
+
+module internal Arr =
+
+    /// Just Array.zeroCreate<Node> in .NET, but when `UNCHECKED` is defined and used in Fable, it emits `new Array(len)`
+    /// without initializing the items to their default value.
+    /// Values are `undefined` in JavaScript
+    /// Not safe on numbers, Fable emits TypedArrays for numeric arrays.
+    let inline zeroCreateUndef (len:int) : Node [] = //
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsExpr (len) "new Array($0)"
+        #else
+            Array.zeroCreate<Node> len
+        #endif
+
+    let inline undefCreateFloat64 (count:int) : float[] =
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsExpr (count) "new Float64Array($0)"
+        #else
+            Array.zeroCreate<float> count
+        #endif
+
+    let inline undefCreateInt (count:int) : int[] =
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsExpr (count) "new Int32Array($0)"
+        #else
+            Array.zeroCreate<int> count
+        #endif
+
+    /// just arr.[idx], but optimized and unchecked in Fable
+    let inline getIdx (idx:int) (arr: 'T[]) : 'T=
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsExpr (arr,idx) "$0[$1]"
+        #else
+            arr.[idx]
+        #endif
+
+    /// just arr.[idx] <- value, but optimized and unchecked in Fable
+    let inline setIdx (idx:int) (value:'T) (arr: 'T[]) : unit =
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsStatement (arr,idx,value) "$0[$1] = $2"
+        #else
+            arr.[idx] <- value
+        #endif
+
+
+    /// returns arr.Length , but optimized and unchecked in Fable
+    let inline len (arr: 'T[]) : int =
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsExpr (arr) "$0.length" // avoid call to count() in fable lib
+        #else
+            arr.Length
+        #endif
+
+
+/// An internal module with functions for working with ResizeArray<'T>.
+module internal ResizeArr =
+
+    /// returns a clone of the ResizeArray, but optimized and unchecked in Fable
+    let inline clone (resizeArray: ResizeArray<'T>) : ResizeArray<'T>=
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsExpr (resizeArray) "$0.slice()"
+        #else
+            resizeArray.GetRange(0, resizeArray.Count)
+        #endif
+
+    /// just resizeArray.[idx], but optimized and unchecked in Fable
+    let inline getIdx (idx:int) (resizeArray: ResizeArray<'T>) : 'T=
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsExpr (resizeArray,idx) "$0[$1]"
+        #else
+            resizeArray.[idx]
+        #endif
+
+
+    /// just resizeArray.[idx] <- value, but optimized and unchecked in Fable
+    let inline setIdx (idx:int) (value:'T) (resizeArray: ResizeArray<'T>) : unit =
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsStatement (resizeArray,idx,value) "$0[$1] = $2"
+        #else
+            resizeArray.[idx] <- value
+        #endif
+
+
+    /// returns resizeArray.Count , but optimized and unchecked in Fable
+    let inline len (resizeArray: ResizeArray<'T>) : int =
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsExpr (resizeArray) "$0.length" // avoid call to count() in fable lib
+        #else
+            resizeArray.Count
+        #endif
+
+    /// returns resizeArray.Count - 1 , but optimized and unchecked in Fable
+    let inline lastIdx  (resizeArray: ResizeArray<'T>) : int =
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsExpr (resizeArray) "$0.length - 1" // avoid call to count() in fable lib
+        #else
+            resizeArray.Count - 1
+        #endif
+
+    /// this is more efficient than ResizeArray.Clear() in Fable,
+    /// which emits .splice(0)
+    let inline clear (arr: ResizeArray<'T>) : unit =
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
+            Fable.Core.JsInterop.emitJsStatement arr "$0.length = 0"
+        #else
+            arr.Clear()
+        #endif
+
+    /// just arr.RemoveAt(arr.Count - 1) , but optimized and unchecked in Fable
+    let inline popOff (arr: ResizeArray<'T>) : unit =
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsStatement (arr) "$0.pop()"
+        #else
+            arr.RemoveAt(arr.Count - 1)
+        #endif
+
+
+    /// just arr.RemoveAt(arr.Count - 1) , but optimized and unchecked in Fable
+    let inline pop (arr: ResizeArray<'T>) : 'T =
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsExpr (arr) "$0.pop()"
+        #else
+            let v = arr.[arr.Count - 1]
+            arr.RemoveAt(arr.Count - 1)
+            v
+        #endif
+
+    let inline map (mapping: 'T -> 'U) (resizeArray: ResizeArray<'T>) : ResizeArray<'U> =
+        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+            Fable.Core.JsInterop.emitJsExpr (resizeArray, mapping) "$0.map($1)" // this works only because a ResizeArray is never a TypedArray in JS
+        #else
+            resizeArray.ConvertAll (System.Converter mapping) // would work in Fable too
+        #endif
+
+
 // Block-bbox index for findHoleBridge (issue #183): one [minX,minY,maxX,maxY] bbox per K
 // consecutive ring edges, in a flat float array, so the leftward-ray scan can skip whole
 // blocks in O(1) instead of walking the entire merged ring. Grown append-only - the outer
