@@ -22,7 +22,7 @@ while the last digits indicate the release number of this F# port. So the versio
 - `earcut` and `deviation` raise an `ArgumentException` if `dimensions` is below 2. Before, this was an `IndexOutOfRangeException`, and with unchecked array access 0 would never return.
 ### Added
 - Tests for `validate`, `earcutTriangles`, `earcutTrianglesFromMembersxy`, `earcutTrianglesFromMembersXY` and for the merge order of tied holes.
-- `THIRD-PARTY-NOTICES.md` with the ISC license notice of the original Mapbox Earcut. It is included in the NuGet package.
+- `LICENSE.md` contains the ISC license notice of the original Mapbox Earcut next to the MIT license. It is included in the NuGet package.
 - The upstream 100,000-vertex convex polygon regression test in both the .NET and Fable/JS test suites, checking triangle count and area deviation.
 - The upstream `issue219` and `issue221` fixtures, the clockwise `refine` test and the nested-splits small-stack test in both the .NET and Fable/JS test suites. On .NET the nested-splits test runs on a thread with a 256 KB stack.
 - Large-polygon benchmarks for .NET and Fable/JS, with concave and collinear control cases.

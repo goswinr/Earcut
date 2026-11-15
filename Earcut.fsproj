@@ -54,7 +54,7 @@
     <PackageReference Include="Fable.Core" Version="5.0.0" Condition="$(DefineConstants.Contains('FABLE_COMPILER'))" />
 
     <None Include="./README.md" Pack="true" PackagePath="" />
-    <None Include="./THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="" /> <!-- the ISC license notice of the original Mapbox Earcut must ship with every copy -->
+    <None Include="./LICENSE.md" Pack="true" PackagePath="" /> <!-- contains the ISC license notice of the original Mapbox Earcut, it must ship with every copy -->
     <None Include="./Docs/img/logo128.png" Pack="true" PackagePath="" />  <!--PackagePath = "" makes the file available to nuget pack tool-->
     <!--so that it can be used with Fable. Only the root source file, not the generated obj files.-->
     <Content Include="*.fsproj; *.fs; *.fsi" PackagePath="fable/" />

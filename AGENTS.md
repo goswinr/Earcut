@@ -10,8 +10,7 @@ Fable source package (the `.fs`/`.fsproj` sources are packed under `fable/` so F
 compile the F# directly to JS with their own Fable version).
 
 The exact upstream commit the port corresponds to is linked in the header comment of `Earcut.fs`.
-That link is the reference to diff against, and [Docs/earcut.js](Docs/earcut.js) is a copy of
-exactly that upstream file. When porting newer upstream commits, update the link and the copy
+That link is the reference to diff against. When porting newer upstream commits, update the link
 together with the status line in [README.md](README.md) and add a changelog entry.
 
 Versioning: the first three digits (e.g. `3.0.2`) track the upstream Mapbox Earcut version;
@@ -212,9 +211,9 @@ then differs between JS engines). Do not assume index-for-index equality for tha
   [docs.yml](.github/workflows/docs.yml) copies it over the stub `Docs/index.md` before running
   `fsdocs`, and [releaseNuget.yml](.github/workflows/releaseNuget.yml) rewrites its `<br>` tags
   for nuget.org. Edit `README.md`, never `Docs/index.md`. Everything else under `Docs/` is copied
-  to the public docs site as-is, `Docs/earcut.js` included.
-- Mapbox Earcut is ISC licensed. Its notice lives in
-  [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which is packed into the NuGet package. Keep
-  it when changing the packaging; `LICENSE.md` (MIT) only covers the port itself.
+  to the public docs site as-is.
+- Mapbox Earcut is ISC licensed. Its notice lives in the "Third-party notices" section of
+  [LICENSE.md](LICENSE.md), after the MIT license of the port itself. `LICENSE.md` is packed into
+  the NuGet package, keep it there when changing the packaging.
 - A release is a pushed git tag equal to the newest version heading in `CHANGELOG.md`. The release
   workflow runs the JS suite, builds, fails if tag and changelog version differ, then pushes to NuGet.

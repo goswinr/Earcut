@@ -328,7 +328,7 @@ The large-polygon benchmarks cover regular 10k/100k polygons, a concave star, a 
 
 [MIT](https://github.com/goswinr/Earcut/blob/main/LICENSE.md) <br>
 The original [Mapbox Earcut](https://github.com/mapbox/earcut) that this library is ported from is ISC licensed,
-see [THIRD-PARTY-NOTICES.md](https://github.com/goswinr/Earcut/blob/main/THIRD-PARTY-NOTICES.md).
+see the third-party notice in [LICENSE.md](https://github.com/goswinr/Earcut/blob/main/LICENSE.md).
 
 ## Images of test cases
 

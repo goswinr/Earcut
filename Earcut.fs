@@ -7,7 +7,7 @@
 
 // v3.2.4 with all commits up to 934e54d from 2026-10-23
 
-// earcut.js is Copyright (c) 2026, Mapbox and ISC licensed, see THIRD-PARTY-NOTICES.md
+// earcut.js is Copyright (c) 2026, Mapbox and ISC licensed, see LICENSE.md
 
 module Earcut
 
