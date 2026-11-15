@@ -215,6 +215,29 @@ runTest "large convex polygon" (fun () ->
     assertOk (deviation(vertices, null, 2, triangles) < 1e-12) "large convex polygon: deviation < 1e-12"
 )
 
+#if !FABLE_COMPILER
+runTest "nested splits do not overflow a small call stack" (fun () ->
+    // A rectangle with k small triangular holes, each one step right and down from the previous;
+    // every hole adds a level of nested splits. Runs on a thread with a small fixed stack, which
+    // recursive splitting overflows at k = 600. A .NET stack overflow can't be caught, so a
+    // regression here crashes the whole test run instead of failing just this test.
+    let k = 600
+    let vertices = ResizeArray<float>([ -1.0; float -k; float (2 * k + 1); float -k; float (2 * k + 1); 7.0; -1.0; 7.0 ])
+    let holes = ResizeArray<int>()
+    for i = 0 to k - 1 do
+        holes.Add(vertices.Count / 2)
+        vertices.AddRange([ float (1 + 2 * i); float -i; float (2 * i); float (6 - i); float (2 + 2 * i); float (6 - i) ])
+    let vertices = vertices.ToArray()
+    let holes = holes.ToArray()
+    let mutable triangles = ResizeArray<int>()
+    let thread = System.Threading.Thread((fun () -> triangles <- earcut(vertices, holes, 2)), 256 * 1024)
+    thread.Start()
+    thread.Join()
+    assertEqual 3002 (triangles.Count / 3) "nested splits: triangle count" &&
+    assertEqual 0.0 (deviation(vertices, holes, 2, triangles)) "nested splits: deviation 0"
+)
+#endif
+
 // ============================================================
 // Refine tests (port of the upstream refine unit tests)
 // ============================================================
@@ -310,6 +333,15 @@ runTest "refine improves a bad quad diagonal" (fun () ->
     assertDeepEqual (ResizeArray([2; 3; 1;  3; 0; 1])) triangles "refine improves a bad quad diagonal: indices" &&
     assertOk (afterPerimeter < beforePerimeter * 0.7) "refine improves a bad quad diagonal: perimeter reduced" &&
     assertOk (deviation(vertices, null, 2, triangles) = 0.0) "refine improves a bad quad diagonal: deviation 0"
+)
+
+runTest "refine improves a clockwise quad diagonal, keeping the winding" (fun () ->
+    let vertices = [| 0.0; 0.0;  3.0; 0.0;  10.0; 1.0;  0.0; 2.0 |]
+    let triangles = ResizeArray([2; 0; 3;  2; 1; 0])
+    refine(triangles, vertices, 2)
+
+    assertDeepEqual (ResizeArray([1; 0; 3;  2; 1; 3])) triangles "refine improves a clockwise quad diagonal: indices" &&
+    assertOk (deviation(vertices, null, 2, triangles) = 0.0) "refine improves a clockwise quad diagonal: deviation 0"
 )
 
 runTest "refine leaves a good quad diagonal alone" (fun () ->

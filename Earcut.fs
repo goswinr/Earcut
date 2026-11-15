@@ -2,10 +2,10 @@
 
 // https://github.com/mapbox/earcut
 
-// https://github.com/mapbox/earcut/blob/2c222c75de7a5552d74740ec781258e1b0f006f8/src/earcut.js
+// https://github.com/mapbox/earcut/blob/934e54d8bed85387330b7acaa5d2f5ba30a460a3/src/earcut.js
 
 
-// v3.2.4 with PR #212 from 2026-10-06
+// v3.2.4 with all commits up to 934e54d from 2026-10-23
 
 
 module Earcut
@@ -86,6 +86,10 @@ type internal Workspace = {
     // shape since they're rare - the empty-set fast path means non-steiner inputs pay nothing
     steiners: HashSet<Node>
 
+    // halves of split polygons waiting to be triangulated, drained by earcut in a loop so that the
+    // call stack doesn't grow with the nesting depth of splits
+    splitStack: ResizeArray<Node>
+
     // set by filterPoints when it removes nodes; read by earcutLinked's stall handler
     mutable filteredOut: bool
 
@@ -119,6 +123,7 @@ type internal Workspace = {
 
 let internal createWorkspace() : Workspace = {
     steiners = HashSet<Node>(HashIdentity.Reference)
+    splitStack = ResizeArray<Node>()
     filteredOut = false
     blockBBox = [||]
     numBlocks = 0
@@ -681,7 +686,7 @@ let internal cureLocalIntersections(ws: Workspace, start: Node, triangles: Resiz
     if cured then filterPoints(ws, p, p) else p
 
 // try splitting polygon into two and triangulate them independently
-let rec internal splitEarcut(ws: Workspace, start: Node, triangles: ResizeArray<int>, minX: float, minY: float, invSize: float) : unit =
+let internal splitEarcut(ws: Workspace, start: Node) : unit =
     // look for a valid diagonal that divides the polygon into two
     let mutable a = start
     let mutable outerContinue = true
@@ -697,9 +702,9 @@ let rec internal splitEarcut(ws: Workspace, start: Node, triangles: ResizeArray<
                 a <- filterPoints(ws, a, a.next)
                 c <- filterPoints(ws, c, c.next)
 
-                // run earcut on each half
-                earcutLinked(ws, a, triangles, minX, minY, invSize)
-                earcutLinked(ws, c, triangles, minX, minY, invSize)
+                // queue both halves for earcut, a on top so it's triangulated first
+                ws.splitStack.Add(c)
+                ws.splitStack.Add(a)
                 outerContinue <- false
                 innerContinue <- false
             else
@@ -711,7 +716,7 @@ let rec internal splitEarcut(ws: Workspace, start: Node, triangles: ResizeArray<
             outerContinue <- a =!= start
 
 // main ear slicing loop which triangulates a polygon (given as a linked list)
-and internal earcutLinked(ws: Workspace, ear: Node, triangles: ResizeArray<int>, minX: float, minY: float, invSize: float) : unit =
+let internal earcutLinked(ws: Workspace, ear: Node, triangles: ResizeArray<int>, minX: float, minY: float, invSize: float) : unit =
     // interlink polygon nodes in z-order
     if invSize <> 0.0 then indexCurve(ws, ear, minX, minY, invSize)
 
@@ -757,7 +762,7 @@ and internal earcutLinked(ws: Workspace, ear: Node, triangles: ResizeArray<int>,
                     cured <- true
                 else
                     // as a last resort, try splitting the remaining polygon into two
-                    splitEarcut(ws, ear, triangles, minX, minY, invSize)
+                    splitEarcut(ws, ear)
                     continueLoop <- false
 
 let internal compareXYSlope(a: Node) (b: Node) : int =
@@ -805,20 +810,19 @@ let internal findHoleBridge(blockBBox: float[], numBlocks: int, blockHead: Node[
                 let mutable continueLoop = true
                 // do-while loop: execute once then check condition
                 while continueLoop do
-                    if p.prev.next === p then // skip nodes removed by filterPoints (stale in the index)
-                        if equals(hole, p.next) then
-                            earlyReturn <- p.next
-                            hasEarlyReturn <- true
-                            continueLoop <- false
-                        elif hy <= p.y && hy >= p.next.y && p.next.y <> p.y then
-                            let x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y)
-                            if x <= hx && x > qx then
-                                qx <- x
-                                m <- if p.x < p.next.x then p else p.next
-                                if x = hx then
-                                    earlyReturn <- m // hole touches outer segment; pick leftmost endpoint
-                                    hasEarlyReturn <- true
-                                    continueLoop <- false
+                    if equals(hole, p.next) then
+                        earlyReturn <- p.next
+                        hasEarlyReturn <- true
+                        continueLoop <- false
+                    elif hy <= p.y && hy >= p.next.y && p.next.y <> p.y then
+                        let x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y)
+                        if x <= hx && x > qx then
+                            qx <- x
+                            m <- if p.x < p.next.x then p else p.next
+                            if x = hx then
+                                earlyReturn <- m // hole touches outer segment; pick leftmost endpoint
+                                hasEarlyReturn <- true
+                                continueLoop <- false
                     if continueLoop then
                         p <- p.next
                         if p === stop then continueLoop <- false
@@ -849,7 +853,7 @@ let internal findHoleBridge(blockBBox: float[], numBlocks: int, blockHead: Node[
                     let mutable continueLoop = true
                     // do-while loop: execute once then check condition
                     while continueLoop do
-                        if p.prev.next === p && hx >= p.x && p.x >= mx && hx <> p.x && // skip dead nodes
+                        if hx >= p.x && p.x >= mx && hx <> p.x &&
                             pointInTriangle((if hy < my then hx else qx), hy, mx, my, (if hy < my then qx else hx), hy, p.x, p.y) then
 
                             let tan = abs(hy - p.y) / (hx - p.x) // tangential
@@ -887,9 +891,17 @@ let internal eliminateHole(ws: Workspace, hole: Node, outerNode: Node) : Node =
         let bridge2 = bridgeReverse.next
         indexSegment(ws, bridge, bridge2.next)
 
-        // heal collinear/coincident points around the two new slit edges
-        filterPoints(ws, bridgeReverse, bridgeReverse.next) |> ignore
-        filterPoints(ws, bridge, bridge.next)
+        // heal collinear/coincident points around the two new slit edges, but leave bridge2 alone: dropping it as collinear
+        // would leave bridge lying on the healed edge, where a later hole could bridge into it from outside its sector
+        filterPoints(ws, bridgeReverse.prev, bridgeReverse) |> ignore
+
+        // likewise, if bridge lies strictly between its prev and hole, healing would drop it and leave bridge2 on the healed
+        // edge; skip the heal then (a spike at bridge, e.g. a hole touching an outer edge, still needs it)
+        let a = bridge.prev
+        if area(a, bridge, hole) = 0.0 && (a.x - bridge.x) * (hole.x - bridge.x) + (a.y - bridge.y) * (hole.y - bridge.y) < 0.0 then
+            bridge
+        else
+            filterPoints(ws, bridge, bridge.next)
 
 // link every hole into the outer loop, producing a single-ring polygon without holes
 let internal eliminateHoles(ws: Workspace, data: array<float>, holeIndices: array<int>, outerNode: Node, dim: int) : Node =
@@ -986,6 +998,12 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
                 invSize <- if invSize <> 0.0 then 32767.0 / invSize else 0.0
 
             earcutLinked(ws, outerNode, triangles, minX, minY, invSize)
+            let splitStack = ws.splitStack
+            while splitStack.Count > 0 do
+                let last = splitStack.Count - 1
+                let node = splitStack.[last]
+                splitStack.RemoveAt(last)
+                earcutLinked(ws, node, triangles, minX, minY, invSize)
 
             triangles
 
@@ -1186,6 +1204,19 @@ let refine(triangles: ResizeArray<int>, coords: array<float>, dim: int) : unit =
     let t = triangles
     let n = t.Count
     if n >= 6 then
+        // the predicates below assume CCW triangles; for a CW mesh, swapping each edge's endpoints
+        // mirrors them, so take the winding from the first non-degenerate triangle
+        let mutable cw = false
+        let mutable k = 0
+        let mutable o = 0.0
+        while o = 0.0 && k < n do
+            let a = t.[k] * dim
+            let b = t.[k + 1] * dim
+            let c = t.[k + 2] * dim
+            o <- orient(coords.[a], coords.[a + 1], coords.[b], coords.[b + 1], coords.[c], coords.[c + 1])
+            cw <- o < 0.0
+            k <- k + 3
+
         let ws = getWorkspace()
         ensureScratch(ws, n)
         let edgeStack = ws.edgeStack
@@ -1243,8 +1274,8 @@ let refine(triangles: ResizeArray<int>, coords: array<float>, dim: int) : unit =
                 let bl = b0 + (b + 2) % 3
                 let br = b0 + (b + 1) % 3
                 let p0 = t.[ar]
-                let pr = t.[a]
-                let pl = t.[al]
+                let pr = t.[if cw then al else a]
+                let pl = t.[if cw then a else al]
                 let p1 = t.[bl]
 
                 let x0 = coords.[p0 * dim]

@@ -12,8 +12,14 @@ while the last digits indicate the release number of this F# port.
 ### Fixed
 - Avoid quadratic point checks when triangulating large strictly convex polygons, porting [mapbox/earcut#212](https://github.com/mapbox/earcut/pull/212). The hashed ear-slicing loop skips point checks until a candidate fails its convexity check.
 - `flatten` skips empty rings instead of adding a hole index for them, which made `earcut` fail on an empty last ring, porting [mapbox/earcut#214](https://github.com/mapbox/earcut/pull/214).
+- `refine` now also works on clockwise triangle meshes, which it used to leave unchanged. It takes the winding from the first non-degenerate triangle, porting Mapbox Earcut commit [2ba39c3](https://github.com/mapbox/earcut/commit/2ba39c3eec13465ba3aeae77ad977d1fe6cac9cd).
+- Deeply nested polygon splits no longer overflow the call stack: `splitEarcut` queues both halves on a stack that `earcut` drains in a loop instead of recursing, porting [mapbox/earcut#215](https://github.com/mapbox/earcut/issues/215). On .NET a stack overflow terminates the process.
+- Two hole-bridging edge cases where healing collinear points around a new bridge let a later hole bridge in from outside its sector, dropping triangles, porting [mapbox/earcut#219](https://github.com/mapbox/earcut/issues/219) and [mapbox/earcut#221](https://github.com/mapbox/earcut/issues/221). This changes the triangle counts of the `water-huge` (5174 to 5170) and `water-huge2` (4484 to 4462) fixtures.
+### Changed
+- Dropped redundant liveness checks in the hole-bridge search, porting [mapbox/earcut#217](https://github.com/mapbox/earcut/pull/217). Results are unchanged.
 ### Added
 - The upstream 100,000-vertex convex polygon regression test in both the .NET and Fable/JS test suites, checking triangle count and area deviation.
+- The upstream `issue219` and `issue221` fixtures, the clockwise `refine` test and the nested-splits small-stack test in both the .NET and Fable/JS test suites. On .NET the nested-splits test runs on a thread with a 256 KB stack.
 - Large-polygon benchmarks for .NET and Fable/JS, with concave and collinear control cases.
 
 ## [3.2.41] - 2026-10-04
