@@ -1,6 +1,5 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this is
 
@@ -23,19 +22,28 @@ therefore `dotnet fable` too. Keep every changelog bullet on a single line; inli
 ## Commands
 
 ```sh
-dotnet build                       # build .NET (net472 + net6.0); also runs GeneratePackageOnBuild
+dotnet build                       # build .NET (netstandard2.0); also runs GeneratePackageOnBuild
 dotnet tool restore                # install pinned Fable + fsdocs tools (.config/dotnet-tools.json)
-dotnet fable                       # transpile Src + Test to JS (use --noCache in CI / when stale)
-node Test/test.js                  # run the test suite (the transpiled Test/test.fsx)
+dotnet fable                       # transpile Earcut.fsproj to Earcut.fs.js (use --noCache in CI / when stale)
+node Test/test.js                  # run the JS test suite against Earcut.fs.js
+dotnet fsi Test/test.fsx           # run the .NET test suite
 ```
 
-Running the tests requires `dotnet fable` first - `Test/test.js` is the Fable output of
-[Test/test.fsx](Test/test.fsx). CI ([.github/workflows/test.yml](.github/workflows/test.yml))
-runs `dotnet fable --noCache` then `node Test/test.js`. The .NET test path is currently
-commented out in CI; the script can also be run directly with `dotnet fsi Test/test.fsx`.
+There are two parallel test suites; when porting an upstream test, add it to both:
 
-There is no "run a single test" runner - tests are driven by `runTest`/fixture loops inside
-`test.fsx`. To isolate one case, edit the `fixtureIds` loop or comment out `runTest` calls.
+- [Test/test.js](Test/test.js) is a hand-written port of upstream's `test/test.js` (`node:test`).
+  It imports `Earcut.fs.js`, the gitignored Fable output of [Earcut.fs](Earcut.fs), so run
+  `dotnet fable` first. Unlike upstream, `earcut` is a named export and always takes
+  `dimensions` explicitly (`earcut(vertices, holes, 2)`).
+- [Test/test.fsx](Test/test.fsx) is the .NET port of the same tests, run with `dotnet fsi`. It is
+  not part of the Fable build; thread-based tests are wrapped in `#if !FABLE_COMPILER`.
+
+CI ([.github/workflows/test.yml](.github/workflows/test.yml)) runs only the JS suite:
+`dotnet fable --noCache` then `node Test/test.js`.
+
+To run a subset of the JS suite, filter by test name: `node --test-name-pattern="issue219" Test/test.js`.
+The .NET script has no filter - to isolate one case, edit the `fixtureIds` loop or comment out
+`runTest` calls.
 
 In Claude Code on the web the container has Node but no .NET SDK, so
 [.claude/hooks/session-start.sh](.claude/hooks/session-start.sh) installs SDK 10 into
@@ -88,10 +96,9 @@ Key consequences for editing:
 
 ## Project constraints
 
-- Targets `net472;net6.0` (not netstandard2.0 - it lacks `IsByRefLike`/`IsReadOnly` support).
+- Targets `netstandard2.0` only (since 3.2.31, replacing the earlier `net472;net6.0` targets).
 - `LangVersion=preview`; warnings are strict: `WarningLevel 5`, `--warnon:3390` (XML docstrings)
   and `--warnon:1182` (unused variables), plus `FsDocsWarnOnMissingDocs`. Keep public members
   documented and avoid unused bindings or the build will warn.
-- The `bin/` and `obj/`, `fable_modules/` directories are build/restore artifacts (e.g.
-  `fable_modules/Euclid.0.16.0` is a transitively cracked dependency from the test scripts, not
-  part of this library).
+- `bin/`, `obj/`, `fable_modules/` and the Fable output `Earcut.fs.js` are gitignored
+  build/restore artifacts, not part of this library's sources.
