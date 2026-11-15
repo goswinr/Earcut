@@ -8,4 +8,13 @@ updates:
     cooldown:
       default-days: 7
 
-
+  # Update NuGet packages (Earcut.fsproj) and .NET local tools (.config/dotnet-tools.json)
+  - package-ecosystem: "nuget"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    ignore: # keep on lower version for better compatibility
+      - dependency-name: "FSharp.Core"
+      - dependency-name: "Fable.Core"
