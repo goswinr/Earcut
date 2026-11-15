@@ -1,5 +1,6 @@
 
-// 2026-09-26 https://github.com/mapbox/earcut/blob/904a60e0e5f4559403d8e1402c1aed7ad853f26f/src/earcut.js
+// https://github.com/mapbox/earcut/blob/934e54d8bed85387330b7acaa5d2f5ba30a460a3/src/earcut.js
+// Reference copy of the upstream commit that Earcut.fs is ported from. ISC licensed, see THIRD-PARTY-NOTICES.md
 
 /**
  * A vertex in a circular doubly linked list representing a polygon ring.
@@ -21,6 +22,11 @@
 // shape since they're rare — the empty-set fast path means non-steiner inputs pay nothing
 /** @type {Set<Node>} */
 const steiners = new Set();
+
+// halves of split polygons waiting to be triangulated, drained by earcut in a loop so that the
+// call stack doesn't grow with the nesting depth of splits
+/** @type {Node[]} */
+const splitStack = [];
 
 // set by filterPoints whenever it removes at least one node; read by earcutLinked's stall
 // handler to decide whether another clip pass is worth attempting before the costlier stages
@@ -73,6 +79,7 @@ export default function earcut(data, holeIndices, dim = 2) {
     }
 
     earcutLinked(outerNode, triangles, minX, minY, invSize);
+    while (splitStack.length) earcutLinked(/** @type {Node} */ (splitStack.pop()), triangles, minX, minY, invSize);
 
     return triangles;
 }
@@ -131,7 +138,9 @@ function earcutLinked(ear, triangles, minX, minY, invSize) {
     // interlink polygon nodes in z-order
     if (invSize) indexCurve(ear, minX, minY, invSize);
 
-    let stop = ear, cured = false;
+    // a strictly convex ring has no vertex that could block an ear, so skip the point checks until a candidate fails;
+    // without this, a big convex ring is cut as one fan of long triangles and each hashed check scans O(n) points
+    let stop = ear, cured = false, convex = invSize ? isConvex(ear) : false;
 
     // iterate through ears, slicing them one by one
     while (ear.prev !== ear.next) {
@@ -139,7 +148,7 @@ function earcutLinked(ear, triangles, minX, minY, invSize) {
         /** @type {Node} */
         const next = ear.next;
 
-        if (area(prev, ear, next) < 0 && (invSize ? isEarHashed(ear, minX, minY, invSize) : isEar(ear))) {
+        if (area(prev, ear, next) < 0 && (convex || (invSize ? isEarHashed(ear, minX, minY, invSize) : isEar(ear)))) {
             triangles.push(prev.i, ear.i, next.i); // cut off the triangle
 
             removeNode(ear);
@@ -148,6 +157,7 @@ function earcutLinked(ear, triangles, minX, minY, invSize) {
             continue;
         }
 
+        convex = false;
         ear = next;
 
         // if we looped through the whole remaining polygon and can't find any more ears
@@ -167,10 +177,21 @@ function earcutLinked(ear, triangles, minX, minY, invSize) {
             }
 
             // as a last resort, try splitting the remaining polygon into two
-            splitEarcut(ear, triangles, minX, minY, invSize);
+            splitEarcut(ear);
             break;
         }
     }
+}
+
+// check whether every vertex of a ring is strictly convex
+/** @param {Node} start @returns {boolean} */
+function isConvex(start) {
+    let p = start;
+    do {
+        if (area(p.prev, p, p.next) >= 0) return false;
+        p = p.next;
+    } while (p !== start);
+    return true;
 }
 
 // check whether a polygon node forms a valid ear with adjacent nodes
@@ -248,8 +269,8 @@ function cureLocalIntersections(start, triangles) {
 }
 
 // try splitting polygon into two and triangulate them independently
-/** @param {Node} start @param {number[]} triangles @param {number} minX @param {number} minY @param {number} invSize */
-function splitEarcut(start, triangles, minX, minY, invSize) {
+/** @param {Node} start */
+function splitEarcut(start) {
     // look for a valid diagonal that divides the polygon into two
     let a = start;
     do {
@@ -263,9 +284,8 @@ function splitEarcut(start, triangles, minX, minY, invSize) {
                 a = filterPoints(a, a.next);
                 c = filterPoints(c, c.next);
 
-                // run earcut on each half
-                earcutLinked(a, triangles, minX, minY, invSize);
-                earcutLinked(c, triangles, minX, minY, invSize);
+                // queue both halves for earcut, a on top so it's triangulated first
+                splitStack.push(c, a);
                 return;
             }
             b = b.next;
@@ -335,8 +355,15 @@ function eliminateHole(hole, outerNode) {
     const bridge2 = bridgeReverse.next;
     indexSegment(bridge, bridge2.next);
 
-    // heal collinear/coincident points around the two new slit edges
-    filterPoints(bridgeReverse, bridgeReverse.next);
+    // heal collinear/coincident points around the two new slit edges, but leave bridge2 alone: dropping it as collinear
+    // would leave bridge lying on the healed edge, where a later hole could bridge into it from outside its sector
+    filterPoints(bridgeReverse.prev, bridgeReverse);
+
+    // likewise, if bridge lies strictly between its prev and hole, healing would drop it and leave bridge2 on the healed
+    // edge; skip the heal then (a spike at bridge, e.g. a hole touching an outer edge, still needs it)
+    const a = bridge.prev;
+    if (area(a, bridge, hole) === 0 && (a.x - bridge.x) * (hole.x - bridge.x) + (a.y - bridge.y) * (hole.y - bridge.y) < 0) return bridge;
+
     return filterPoints(bridge, bridge.next);
 }
 
@@ -449,15 +476,13 @@ function findHoleBridge(hole, outerNode) {
 
         p = liveBlockHead(b);
         do {
-            if (p.prev.next === p) { // skip nodes removed by filterPoints (stale in the index)
-                if (equals(hole, p.next)) return p.next;
-                else if (hy <= p.y && hy >= p.next.y && p.next.y !== p.y) {
-                    const x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y);
-                    if (x <= hx && x > qx) {
-                        qx = x;
-                        m = p.x < p.next.x ? p : p.next;
-                        if (x === hx) return m; // hole touches outer segment; pick leftmost endpoint
-                    }
+            if (equals(hole, p.next)) return p.next;
+            else if (hy <= p.y && hy >= p.next.y && p.next.y !== p.y) {
+                const x = p.x + (hy - p.y) * (p.next.x - p.x) / (p.next.y - p.y);
+                if (x <= hx && x > qx) {
+                    qx = x;
+                    m = p.x < p.next.x ? p : p.next;
+                    if (x === hx) return m; // hole touches outer segment; pick leftmost endpoint
                 }
             }
             p = p.next;
@@ -484,7 +509,7 @@ function findHoleBridge(hole, outerNode) {
 
         p = liveBlockHead(b);
         do {
-            if (p.prev.next === p && hx >= p.x && p.x >= mx && hx !== p.x && // skip dead nodes
+            if (hx >= p.x && p.x >= mx && hx !== p.x &&
                     pointInTriangle(hy < my ? hx : qx, hy, mx, my, hy < my ? qx : hx, hy, p.x, p.y)) {
 
                 const tan = Math.abs(hy - p.y) / (hx - p.x); // tangential
@@ -871,17 +896,13 @@ export function flatten(data) {
     const holes = [];
     const dimensions = data[0][0].length;
     let holeIndex = 0;
-    let prevLen = 0;
 
     for (const ring of data) {
         for (const p of ring) {
             for (let d = 0; d < dimensions; d++) vertices.push(p[d]);
         }
-        if (prevLen) {
-            holeIndex += prevLen;
-            holes.push(holeIndex);
-        }
-        prevLen = ring.length;
+        if (holeIndex && ring.length) holes.push(holeIndex);
+        holeIndex += ring.length;
     }
     return {vertices, holes, dimensions};
 }
@@ -915,6 +936,16 @@ export function refine(triangles, coords, dim = 2) {
     const t = triangles;
     const n = t.length;
     if (n < 6) return;
+
+    // the predicates below assume CCW triangles; for a CW mesh, swapping each edge's endpoints
+    // mirrors them, so take the winding from the first non-degenerate triangle
+    let cw = false;
+    for (let k = 0, o = 0; o === 0 && k < n; k += 3) {
+        const a = t[k] * dim, b = t[k + 1] * dim, c = t[k + 2] * dim;
+        o = orient(coords[a], coords[a + 1], coords[b], coords[b + 1], coords[c], coords[c + 1]);
+        cw = o < 0;
+    }
+
     ensureScratch(n);
     gen++;              // bumping the generation logically empties the hash (no clearing)
     he.fill(-1, 0, n);
@@ -957,7 +988,7 @@ export function refine(triangles, coords, dim = 2) {
         const al = a0 + (a + 1) % 3;
         const bl = b0 + (b + 2) % 3;
         const br = b0 + (b + 1) % 3;
-        const p0 = t[ar], pr = t[a], pl = t[al], p1 = t[bl];
+        const p0 = t[ar], pr = t[cw ? al : a], pl = t[cw ? a : al], p1 = t[bl];
 
         const x0 = coords[p0 * dim], y0 = coords[p0 * dim + 1];
         const xr = coords[pr * dim], yr = coords[pr * dim + 1];

@@ -2,11 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 The first three digits of the version number (e.g. `3.0.2`) correspond to the original Mapbox Earcut version,
-while the last digits indicate the release number of this F# port.
+while the last digits indicate the release number of this F# port. So the version numbers do not follow Semantic Versioning.
 
 ## [Unreleased]
 ### Fixed
@@ -15,9 +14,15 @@ while the last digits indicate the release number of this F# port.
 - `refine` now also works on clockwise triangle meshes, which it used to leave unchanged. It takes the winding from the first non-degenerate triangle, porting Mapbox Earcut commit [2ba39c3](https://github.com/mapbox/earcut/commit/2ba39c3eec13465ba3aeae77ad977d1fe6cac9cd).
 - Deeply nested polygon splits no longer overflow the call stack: `splitEarcut` queues both halves on a stack that `earcut` drains in a loop instead of recursing, porting [mapbox/earcut#215](https://github.com/mapbox/earcut/issues/215). On .NET a stack overflow terminates the process.
 - Two hole-bridging edge cases where healing collinear points around a new bridge let a later hole bridge in from outside its sector, dropping triangles, porting [mapbox/earcut#219](https://github.com/mapbox/earcut/issues/219) and [mapbox/earcut#221](https://github.com/mapbox/earcut/issues/221). This changes the triangle counts of the `water-huge` (5174 to 5170) and `water-huge2` (4484 to 4462) fixtures.
+- On .NET, holes that compare as equal when sorted (same leftmost point and same slope, for example duplicate Steiner points) are now merged in input order, as in the JS original. The unstable `List.Sort` used to reorder them from three holes on, which could change or lose triangles on such degenerate input.
+- `earcutTriangles`, `earcutTrianglesFromMembersxy` and `earcutTrianglesFromMembersXY` skip empty holes instead of throwing a `NullReferenceException`.
 ### Changed
 - Dropped redundant liveness checks in the hole-bridge search, porting [mapbox/earcut#217](https://github.com/mapbox/earcut/pull/217). Results are unchanged.
+- Fable/JS Release builds are about 1.5 times faster for `earcut` and about 4 times faster for `refine`, back on par with the JS original. Array access now goes through the internal `Arr` and `ResizeArr` helpers, which emit plain `a[i]` instead of the bounds-checked `item()` and `setItem()` calls of Fable 5. Debug builds keep the checks. As in the original, malformed input no longer raises an index error in Release builds, so use `validate` if the input is not trusted.
+- `earcut` and `deviation` raise an `ArgumentException` if `dimensions` is below 2. Before, this was an `IndexOutOfRangeException`, and with unchecked array access 0 would never return.
 ### Added
+- Tests for `validate`, `earcutTriangles`, `earcutTrianglesFromMembersxy`, `earcutTrianglesFromMembersXY` and for the merge order of tied holes.
+- `THIRD-PARTY-NOTICES.md` with the ISC license notice of the original Mapbox Earcut. It is included in the NuGet package.
 - The upstream 100,000-vertex convex polygon regression test in both the .NET and Fable/JS test suites, checking triangle count and area deviation.
 - The upstream `issue219` and `issue221` fixtures, the clockwise `refine` test and the nested-splits small-stack test in both the .NET and Fable/JS test suites. On .NET the nested-splits test runs on a thread with a 256 KB stack.
 - Large-polygon benchmarks for .NET and Fable/JS, with concave and collinear control cases.

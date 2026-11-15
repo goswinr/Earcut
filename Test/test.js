@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import {Worker} from 'node:worker_threads';
 import fs from 'fs';
 
-// import earcut, {flatten, deviation, refine} from '../src/earcut.js'; // original JS version
-import {earcut, flatten, deviation, refine} from '../Earcut.fs.js'; // F# to JS version
+// import earcut, {flatten, deviation, refine} from '../mapbox-earcut/src/earcut.js'; // original JS version
+import {earcut, flatten, deviation, refine, validate, earcutTriangles} from '../Earcut.fs.js'; // F# to JS version
 import {readTilesFixture} from './bench/tiles-fixture.js';
 
 const expected = JSON.parse(fs.readFileSync(new URL('expected.json', import.meta.url)));
@@ -377,4 +377,83 @@ test('block-index-collinear', () => {
         const err = deviation(data.vertices, data.holes, data.dimensions, indices);
         assert.ok(err < 1e-9, `rotation ${rotation}: deviation ${err} (hole dropped?)`);
     }
+});
+
+// ============================================================
+// Tests that are not in upstream: hole ordering and the F#-only API.
+// The inline wrappers earcutTrianglesFromMembersxy / XY are not emitted to JS; Test/test.fsx covers them.
+// ============================================================
+
+// Holes that compare as equal in compareXYSlope must be merged in input order, as the stable JS
+// sort does. On .NET an unstable sort used to reorder them from three holes on (and lose a triangle
+// in the second case). The expected indices are the output of upstream earcut.js.
+test('tied holes keep their input order', () => {
+    const outer = [0, 0, 10, 0, 10, 10, 0, 10];
+    // two Steiner points on the same spot, then one further left
+    const steiners = [...outer, 5, 5, 5, 5, 2, 2];
+    assert.deepEqual(earcut(steiners, [4, 5, 6], 2), [6, 0, 1, 5, 6, 1, 5, 1, 2, 5, 2, 3, 5, 3, 0]);
+    // two triangles sharing their leftmost point and first edge direction, then one further left
+    const triangles = [...outer, 5, 5, 6, 6, 6, 5, 5, 5, 7, 7, 7, 5, 2, 2, 3, 3, 3, 2];
+    assert.deepEqual(earcut(triangles, [4, 7, 10], 2),
+        [4, 11, 12, 12, 10, 0, 12, 0, 1, 4, 12, 1, 1, 8, 9, 4, 1, 9, 8, 1, 2, 8, 2, 3, 8, 3, 0]);
+});
+
+// With unchecked array access a coordinate step of 0 would loop forever, so it is rejected up front.
+test('earcut and deviation reject dimensions below 2', () => {
+    const square = [0, 0, 10, 0, 10, 10, 0, 10];
+    assert.throws(() => earcut(square, null, 0), /dimensions must be at least 2/);
+    assert.throws(() => earcut(square, null, 1), /dimensions must be at least 2/);
+    assert.throws(() => deviation(square, null, 0, []), /dim must be at least 2/);
+    assert.throws(() => deviation(square, null, 1, []), /dim must be at least 2/);
+});
+
+test('validate accepts well-formed input', () => {
+    const square = [0, 0, 10, 0, 10, 10, 0, 10];
+    validate(square, null, 2);
+    validate(square, [], 2);
+    validate([...square, 2, 2, 4, 2, 3, 4], [4], 2); // one hole
+    validate([...square, 5, 5], [4], 2); // a single point hole is a Steiner point
+    validate([0, 0, 1, 10, 0, 1, 10, 10, 1], null, 3);
+});
+
+test('validate rejects malformed input', () => {
+    const square = [0, 0, 10, 0, 10, 10, 0, 10];
+    const withHole = [...square, 2, 2, 4, 2, 3, 4]; // 7 points
+    const withTwoHoles = [...withHole, 6, 6, 8, 6, 7, 8]; // 10 points
+    assert.throws(() => validate(square, null, 1), /Dimensions must be at least 2/);
+    assert.throws(() => validate(null, null, 2), /null or empty/);
+    assert.throws(() => validate([], null, 2), /null or empty/);
+    assert.throws(() => validate([...square, 1], null, 2), /not a multiple of dimensions/);
+    assert.throws(() => validate([0, 0, NaN, 0, 10, 10], null, 2), /NaN value at index 2/);
+    assert.throws(() => validate([0, 0, Infinity, 0, 10, 10], null, 2), /Infinity value at index 2/);
+    assert.throws(() => validate(withHole, [2], 2), /Outer loop must have at least 3 points/);
+    assert.throws(() => validate(withHole, [9], 2), /out of bounds/);
+    assert.throws(() => validate(withTwoHoles, [7, 4], 2), /ascending order/);
+    assert.throws(() => validate(withHole, [4, 7], 2), /at or beyond the end/);
+    assert.throws(() => validate([...square, 2, 2, 4, 2], [4], 2), /has only 2 points/);
+    assert.throws(() => validate([...square, -5, -5, 20, -5, 20, 20, -5, 20], [4], 2), /not smaller than the area of the outer loop/);
+});
+
+// summed area of the triangles in a flat [x0, y0, x1, y1, x2, y2, ...] coordinate array
+function coordinateTrianglesArea(xys) {
+    let area = 0;
+    for (let i = 0; i < xys.length; i += 6) {
+        area += Math.abs((xys[i + 2] - xys[i]) * (xys[i + 5] - xys[i + 1]) - (xys[i + 4] - xys[i]) * (xys[i + 3] - xys[i + 1])) / 2;
+    }
+    return area;
+}
+
+test('earcutTriangles returns triangle coordinates and skips empty holes', () => {
+    const boundary = [0, 0, 10, 0, 10, 10, 0, 10];
+    const hole = [2, 2, 4, 2, 4, 4, 2, 4];
+    const plain = earcutTriangles(null, boundary);
+    const holed = earcutTriangles([hole], boundary);
+    assert.equal(plain.length, 2 * 6);
+    assert.equal(coordinateTrianglesArea(plain), 100);
+    assert.equal(holed.length, 8 * 6);
+    assert.equal(coordinateTrianglesArea(holed), 96);
+    assert.deepEqual(earcutTriangles([], boundary), plain);
+    // an empty hole used to fail inside earcut
+    assert.deepEqual(earcutTriangles([[]], boundary), plain);
+    assert.deepEqual(earcutTriangles([[], hole, []], boundary), holed);
 });

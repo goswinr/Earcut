@@ -21,19 +21,26 @@ https://github.com/mapbox/earcut
 
 Stable for .NET Standard 2.0 and JS via Fable.
 
-v3.2.4 ported to F# on 2026-10-05
+A port of Mapbox Earcut v3.2.4, including all later upstream commits up to
+[934e54d](https://github.com/mapbox/earcut/commit/934e54d8bed85387330b7acaa5d2f5ba30a460a3).
 
 [All tests](https://github.com/mapbox/earcut/blob/main/test/test.js) of the original JS version pass,
 including the MVT regression suite over 119,680 real-world polygons.
-The port produces element-for-element identical output to the reference JS implementation.
+The port produces element-for-element identical output to the reference JS implementation. <br>
+The only exception is degenerate input on .NET: if a single-point hole (Steiner point) sits exactly on the leftmost point
+of at least two other holes, the order in which these holes get merged is not defined in the original either
+(it depends on the sort algorithm of the JS engine), so the triangles can differ.
 
-All relevant code is in  [Earcut.fs](https://github.com/goswinr/Euclid.Earcut/blob/main/Earcut.fs). <br>
+All relevant code is in  [Earcut.fs](https://github.com/goswinr/Earcut/blob/main/Earcut.fs). <br>
 It contains the ported code without any major changes to the original logic. <br>
 It has no dependencies.
 
 ## Performance
 
-The F# port has about the same performance as the original JS version when compiled back to JS with Fable.
+The F# port has about the same performance as the original JS version when compiled back to JS with Fable. <br>
+This holds for Release builds, the default of `dotnet fable`. In Debug builds (the default of `dotnet fable watch`)
+array access is bounds-checked, which makes `earcut` about 1.5 times and `refine` about 4 times slower. <br>
+On .NET it is somewhat faster than the original running on Node.js.
 
 Earcut is heavily optimized for its primary workload - triangulating polygons from
 [Mapbox Vector Tiles](https://github.com/mapbox/vector-tile-spec).
@@ -109,8 +116,8 @@ x = vertices[i * dimensions]
 y = vertices[i * dimensions + 1]
 ```
 
-Output triangles always have a consistent **winding order** regardless of the input polygon's winding
-- counter-clockwise in a y-up coordinate system (clockwise in y-down/screen space). <br>
+Output triangles always have a consistent **winding order** regardless of the input polygon's winding:
+counter-clockwise in a y-up coordinate system (clockwise in y-down/screen space). <br>
 If you need the opposite orientation (e.g. for back-face culling or normals in 3D), reverse the result.
 
 ## Convenience F# API: `earcutTrianglesFromMembersxy` and `earcutTrianglesFromMembersXY`
@@ -139,6 +146,11 @@ let triangles = outerPoly.Points |> Earcut.earcutTrianglesFromMembersXY null
 let holes = [|hole1.Points; hole2.Points|]
 let triangles = outerPoly.Points |> Earcut.earcutTrianglesFromMembersXY holes
 ```
+
+If your coordinates are already flat lists of numbers `[x0, y0, x1, y1, ...]`, use `Earcut.earcutTriangles` in the same way.
+It takes a `ResizeArray<float>` per ring and also returns the flat `float[]` of triangle coordinates.
+
+All three functions skip empty holes.
 
 ## Examples
 
@@ -255,6 +267,10 @@ that raises a descriptive `System.ArgumentException` if the input is malformed
 Earcut.validate(vertices, holes, dimensions)
 ```
 
+`earcut` itself only rejects `dimensions` below 2. On .NET other malformed input, like a hole index past the end,
+ends in an `IndexOutOfRangeException` or `NullReferenceException`. In Fable Release builds array access is unchecked,
+as in the original, so call `validate` first if you don't trust the input.
+
 ## Thread safety
 
 On .NET, calls to `earcut`, its convenience wrappers, and `refine` are **thread-safe**:
@@ -274,9 +290,9 @@ Fable/JavaScript uses one workspace per JS context, matching its synchronous exe
 
 ## Build to JS with Fable
 
-If you don't have Fable installed yet run:
+Install the pinned Fable version from `.config/dotnet-tools.json` with:
 
-`dotnet tool install fable`
+`dotnet tool restore`
 
 then build to JS with:
 
@@ -284,8 +300,10 @@ then build to JS with:
 
 ## Run Tests
 
-build to JS with `dotnet fable` <br>
-run tests with `node Test/test.js`
+There are two test suites with the same tests.
+
+For Fable/JS, build to JS with `dotnet fable` and run `node Test/test.js` <br>
+For .NET, run `dotnet fsi Test/test.fsx`
 
 ## Run Benchmarks
 
@@ -305,6 +323,12 @@ node Test/bench/bench-refine.js
 ```
 
 The large-polygon benchmarks cover regular 10k/100k polygons, a concave star, a random-radius ring, and a rectangle with collinear boundary vertices. They report the median and range of five measured calls after one warmup. Run before/after versions in separate processes.
+
+## License
+
+[MIT](https://github.com/goswinr/Earcut/blob/main/LICENSE.md) <br>
+The original [Mapbox Earcut](https://github.com/mapbox/earcut) that this library is ported from is ISC licensed,
+see [THIRD-PARTY-NOTICES.md](https://github.com/goswinr/Earcut/blob/main/THIRD-PARTY-NOTICES.md).
 
 ## Images of test cases
 

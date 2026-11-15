@@ -4,7 +4,7 @@
 #r "C:/Program Files/Rhino 8/System/RhinoCommon.dll"
 #r "nuget: Newtonsoft.Json, 13.0.4"
 #r "nuget:Rhino.Scripting.FSharp"
-#load "D:\Git\_Euclid_\Earcut\Src\Earcut.fs"
+#load "D:/Git/_Euclid_/Earcut/Earcut.fs"
 #nowarn "25" //pattern match on array
 
 // these tests pass standalone but fail when run in rhino:

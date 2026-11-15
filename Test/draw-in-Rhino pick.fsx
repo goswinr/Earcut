@@ -1,4 +1,4 @@
-﻿#r "D:/Git/_Euclid_/Earcut/bin/Debug/net6.0/Earcut.dll"
+﻿#r "D:/Git/_Euclid_/Earcut/bin/Debug/netstandard2.0/Earcut.dll"
 #r "C:/Program Files/Rhino 8/System/RhinoCommon.dll"
 #r "nuget: Rhino.Scripting.FSharp"
 #r "nuget: Euclid.Rhino, 0.40.0"

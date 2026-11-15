@@ -10,8 +10,9 @@ Fable source package (the `.fs`/`.fsproj` sources are packed under `fable/` so F
 compile the F# directly to JS with their own Fable version).
 
 The exact upstream commit the port corresponds to is linked in the header comment of `Earcut.fs`.
-That link is the reference to diff against. When porting newer upstream commits, update it together
-with the status line in [README.md](README.md) and add a changelog entry.
+That link is the reference to diff against, and [Docs/earcut.js](Docs/earcut.js) is a copy of
+exactly that upstream file. When porting newer upstream commits, update the link and the copy
+together with the status line in [README.md](README.md) and add a changelog entry.
 
 Versioning: the first three digits (e.g. `3.0.2`) track the upstream Mapbox Earcut version;
 trailing digits are the F# port's release number (`3.2.41` is the first release of upstream `3.2.4`).
@@ -83,14 +84,15 @@ command fails with `dotnet: command not found`, wait and retry rather than reins
 - [Test/bench/tiles-fixture.bin](Test/bench/tiles-fixture.bin) (119,680 real MVT polygons) is used
   by both test suites and the benchmarks; every polygon must triangulate with zero deviation.
 - Each fixture is run at 0/90/180/270° rotations. Both suites pass completely, so treat any
-  failure as a regression. The `FAIL` lines in the comment block at the top of `test.fsx` are
-  historical results from running the script inside Rhino, not expected failures.
+  failure as a regression.
 - Correctness is checked via `Earcut.deviation` (relative area mismatch between triangulation
   and polygon), not exact triangle equality, because the algorithm trades correctness for speed.
-- The F#-only API (`validate`, `earcutTriangles`, `earcutTrianglesFromMembersxy/XY`) has no
-  tests in either suite. Add some when touching it.
+- Tests that do not come from upstream sit at the end of both files: the merge order of tied
+  holes, `validate` and `earcutTriangles`. The inline wrappers `earcutTrianglesFromMembersxy/XY`
+  are not emitted to JS, so only `test.fsx` covers them.
 - `Test/draw-in-Rhino*.fsx` and `Test/test-and-draw-in-Rhino.fsx` are manual visual-debugging
-  scripts for Rhino with hard-coded local paths. They are not part of either suite.
+  scripts for Rhino with hard-coded local paths. They are not part of either suite. The `FAIL`
+  list at the top of the latter describes old runs inside Rhino, not expected failures.
 
 ## Architecture notes
 
@@ -137,7 +139,30 @@ Fable, and passes it down as `ws`. This is what makes `earcut` and `refine` thre
   `filterPoints`, the only remover that runs while the index is active, so `removeNode` needs no `ws`.
 - Typed arrays become `float[]` / `int[]` (`Uint8Array` and `Uint32Array` included), `Math.imul`
   becomes the `imul` helper (emitted as `Math.imul` under Fable, wrapping `*` on .NET).
+- `queue.sort(compareXYSlope)` relies on the JS sort being stable. `List.Sort` on .NET is not, so
+  `eliminateHoles` uses `Seq.sortWith` there and keeps `queue.Sort` only under `FABLE_COMPILER`.
 - `#if FABLE_COMPILER...` blocks are the only place where the two targets differ. Keep them minimal.
+
+### Array access: `Arr` and `ResizeArr`
+
+Fable 5 compiles `arr.[i]` and `arr.[i] <- v` to bounds-checked `item()`/`setItem()` library
+calls, which made `earcut` about 1.5x and `refine` about 4x slower than upstream JS. Fable has no
+switch for this, so indexing goes through the internal `Arr` (arrays) and `ResizeArr`
+(`ResizeArray`) modules at the top of `Earcut.fs`:
+
+- Write `Arr.getIdx i arr` and `Arr.setIdx i value arr` (same for `ResizeArr`), never `.[i]`, in
+  any internal code. Also use `ResizeArr.clear`, `ResizeArr.pop` and, for arrays whose content is
+  fully written before it is read, `Arr.undefCreateInt` / `Arr.undefCreateFloat64` /
+  `Arr.zeroCreateUndef`. Arrays that rely on starting out zeroed (`edgeStamp`, `hStamp`) keep
+  `Array.zeroCreate`. Avoid `for x in arr`, which also compiles to `item()`.
+- The helpers emit raw `a[i]` only when both `RELEASE` and a Fable JS/TS symbol are defined.
+  `dotnet fable` defines `RELEASE` by default, `dotnet fable watch` and `-c Debug` do not and keep
+  the checks. On .NET they are plain indexing with the usual bounds checks.
+- Public `inline` functions (the two SRTP wrappers) cannot call these internal helpers and use
+  plain indexing.
+- To verify after a change: `grep -c "item(" Earcut.fs.js` should only count the few cold call
+  sites (error messages in `validate`, the first lines of `flatten`, the `IList` of holes in
+  `earcutTriangles`), and the benchmarks should stay on par with upstream.
 
 ### Public API surface (all in `module Earcut`)
 
@@ -157,24 +182,18 @@ Fable, and passes it down as `ws`. This is what makes `earcut` and `refine` thre
 
 Everything else in the file is `internal`. `earcut` and `refine` do not validate: malformed input
 (an empty hole, a hole index past the end, an odd coordinate count) throws
-`NullReferenceException` or `IndexOutOfRangeException` on .NET.
+`NullReferenceException` or `IndexOutOfRangeException` on .NET. In Fable Release builds it
+behaves like upstream instead (out-of-range reads give `undefined`), so nothing may be thrown.
+`flatten` and the three `earcutTriangles*` wrappers skip empty rings.
 
-### Known gaps (measured 2026-11-16, remove an entry once it is fixed)
+### Known limit of .NET / JS parity
 
-- **Fable output is slower than upstream.** Fable 5 (every release from 5.0.0 to 5.27.0) compiles
-  `arr.[i]` and `arr.[i] <- v` to bounds-checked `item()`/`setItem()` library calls. On the MVT
-  benchmark with node 26 this makes `earcut` about 1.5x and `refine` about 3.5x slower than
-  upstream JS. Fable has no switch to turn this off. Routing indexing through `inline` accessors
-  that use `emitJsExpr "$0[$1]"` under Fable restores parity without changing .NET speed or any
-  result. Do not claim JS performance parity without running the benchmarks.
-- **.NET and JS can order tied holes differently.** `queue.Sort compareXYSlope` in
-  `eliminateHoles` is stable in JS but not on .NET, and the comparator returns 0 for NaN slopes
-  (Steiner points), which makes it non-transitive. Triangulations are identical between upstream,
-  Fable and .NET on all fixtures and the MVT set, but can differ on degenerate input with three or
-  more holes where some of them tie (same leftmost point with an equal or NaN slope). Do not
-  assume index-for-index equality there.
-- **Empty holes crash the convenience wrappers.** `flatten` skips empty rings, the three
-  `earcutTriangles*` wrappers do not, so an empty hole list entry ends in a `NullReferenceException`.
+Upstream, the Fable build and the .NET build produce identical triangle indices on all fixtures
+and on the MVT set. One case cannot be made identical: `compareXYSlope` returns 0 when the slope
+difference is NaN, which happens for a single-point hole (Steiner point) or a hole of coincident
+points. If such a hole shares its leftmost point with two or more holes of different slopes, the
+comparator is not transitive and the result depends on the sort algorithm, in upstream too (it
+then differs between JS engines). Do not assume index-for-index equality for that input.
 
 ## Project constraints
 
@@ -193,6 +212,9 @@ Everything else in the file is `internal`. `earcut` and `refine` do not validate
   [docs.yml](.github/workflows/docs.yml) copies it over the stub `Docs/index.md` before running
   `fsdocs`, and [releaseNuget.yml](.github/workflows/releaseNuget.yml) rewrites its `<br>` tags
   for nuget.org. Edit `README.md`, never `Docs/index.md`. Everything else under `Docs/` is copied
-  to the public docs site as-is.
+  to the public docs site as-is, `Docs/earcut.js` included.
+- Mapbox Earcut is ISC licensed. Its notice lives in
+  [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md), which is packed into the NuGet package. Keep
+  it when changing the packaging; `LICENSE.md` (MIT) only covers the port itself.
 - A release is a pushed git tag equal to the newest version heading in `CHANGELOG.md`. The release
   workflow runs the JS suite, builds, fails if tag and changelog version differ, then pushes to NuGet.

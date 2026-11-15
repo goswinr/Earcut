@@ -32,14 +32,13 @@
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <PackageIcon>logo128.png</PackageIcon>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <DebugType>embedded</DebugType>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <RepositoryUrl>https://github.com/goswinr/Earcut</RepositoryUrl>
 
-    <FsDocsLicenseLink>https://github.com/goswinr/Earcut/blob/main//LICENSE.md</FsDocsLicenseLink>
+    <FsDocsLicenseLink>https://github.com/goswinr/Earcut/blob/main/LICENSE.md</FsDocsLicenseLink>
     <FsDocsReleaseNotesLink>https://github.com/goswinr/Earcut/blob/main/CHANGELOG.md</FsDocsReleaseNotesLink>
     <PackageProjectUrl>https://goswinr.github.io/Earcut</PackageProjectUrl>
     <FsDocsFaviconSource>img/favicon.ico</FsDocsFaviconSource>
@@ -55,6 +54,7 @@
     <PackageReference Include="Fable.Core" Version="5.0.0" Condition="$(DefineConstants.Contains('FABLE_COMPILER'))" />
 
     <None Include="./README.md" Pack="true" PackagePath="" />
+    <None Include="./THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="" /> <!-- the ISC license notice of the original Mapbox Earcut must ship with every copy -->
     <None Include="./Docs/img/logo128.png" Pack="true" PackagePath="" />  <!--PackagePath = "" makes the file available to nuget pack tool-->
     <!--so that it can be used with Fable. Only the root source file, not the generated obj files.-->
     <Content Include="*.fsproj; *.fs; *.fsi" PackagePath="fable/" />

@@ -3,8 +3,8 @@
 #
 # The remote container ships with Node but no .NET SDK, so without this every
 # session starts unable to build the library or regenerate Test/test.js's
-# dependency (Src/Earcut.fs.js, the Fable output). This installs the SDK, the
-# pinned local tools (Fable, fsdocs) and transpiles Src to JS.
+# dependency (Earcut.fs.js, the Fable output). This installs the SDK, the
+# pinned local tools (Fable, fsdocs) and transpiles Earcut.fs to JS.
 #
 # Runs asynchronously: the session starts immediately while this works in the
 # background. See .claude/settings.json for registration.
@@ -54,7 +54,7 @@ dotnet tool restore
 # NuGet restore up front so the first `dotnet build` of the session is offline-fast.
 dotnet restore
 
-# Test/test.js imports ../Src/Earcut.fs.js, which only exists once Fable has run.
+# Test/test.js imports ../Earcut.fs.js, which only exists once Fable has run.
 dotnet fable
 
 echo "Session setup complete: $("$DOTNET_ROOT/dotnet" --version), $(node --version)"

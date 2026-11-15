@@ -7,6 +7,7 @@
 
 // v3.2.4 with all commits up to 934e54d from 2026-10-23
 
+// earcut.js is Copyright (c) 2026, Mapbox and ISC licensed, see THIRD-PARTY-NOTICES.md
 
 module Earcut
 
@@ -67,7 +68,7 @@ let inline internal imul (a: int) (b: int) : int =
 
 module internal Arr =
 
-    /// Just Array.zeroCreate<Node> in .NET, but when `UNCHECKED` is defined and used in Fable, it emits `new Array(len)`
+    /// Just Array.zeroCreate<Node> in .NET, but when `RELEASE` is defined and used in Fable, it emits `new Array(len)`
     /// without initializing the items to their default value.
     /// Values are `undefined` in JavaScript
     /// Not safe on numbers, Fable emits TypedArrays for numeric arrays.
@@ -294,10 +295,11 @@ let internal buildBlockIndex(ws: Workspace, maxNodes: int, numHoles: int) : unit
     // upper bound: every input node indexed once, +2 bridge nodes per hole, plus a partial
     // trailing block per appended segment (outer ring + one per hole)
     let maxBlocks = (maxNodes + 2 * numHoles + K - 1) / K + numHoles + 2
-    if blockBBox.Length < maxBlocks * 4 then ws.blockBBox <- Array.zeroCreate<float> (maxBlocks * 4)
+    // every slot below numBlocks is written by indexSegment before it is read, so no initialization is needed
+    if blockBBox.Length < maxBlocks * 4 then ws.blockBBox <- Arr.undefCreateFloat64 (maxBlocks * 4)
     if blockHead.Length < maxBlocks then
-        ws.blockHead <- Array.zeroCreate maxBlocks
-        ws.blockStop <- Array.zeroCreate maxBlocks
+        ws.blockHead <- Arr.zeroCreateUndef maxBlocks
+        ws.blockStop <- Arr.zeroCreateUndef maxBlocks
     ws.numBlocks <- 0
 
 // index the ring run head..stop (exclusive) as ceil(len / K) blocks; head === stop means
@@ -313,7 +315,7 @@ let internal indexSegment(ws: Workspace, head: Node, stop: Node) : unit =
     while continueOuter do
         let b = numBlocks
         numBlocks <- numBlocks + 1
-        blockHead.[b] <- p
+        Arr.setIdx b p blockHead
         // seed from the block's first point, so the inner loop only has to expand for c:
         // each iteration's p is the previous iteration's c, already covered (mapbox/earcut#207)
         let mutable minX = p.x
@@ -333,12 +335,12 @@ let internal indexSegment(ws: Workspace, head: Node, stop: Node) : unit =
             p <- c
             k <- k + 1
             if not (k < K && p =!= stop) then continueInner <- false
-        blockStop.[b] <- p
+        Arr.setIdx b p blockStop
         let g = b * 4
-        blockBBox.[g] <- minX
-        blockBBox.[g + 1] <- minY
-        blockBBox.[g + 2] <- maxX
-        blockBBox.[g + 3] <- maxY
+        Arr.setIdx g minX blockBBox
+        Arr.setIdx (g + 1) minY blockBBox
+        Arr.setIdx (g + 2) maxX blockBBox
+        Arr.setIdx (g + 3) maxY blockBBox
         if p === stop then continueOuter <- false
     ws.numBlocks <- numBlocks
 
@@ -347,16 +349,16 @@ let internal indexSegment(ws: Workspace, head: Node, stop: Node) : unit =
 // block; grow head's block bbox to cover tail so the leftward-ray prune can't false-skip it.
 let inline internal growBlock(blockBBox: float[], head: Node, tail: Node) : unit =
     let g = head.z * 4
-    if tail.x < blockBBox.[g] then blockBBox.[g] <- tail.x
-    if tail.y < blockBBox.[g + 1] then blockBBox.[g + 1] <- tail.y
-    if tail.x > blockBBox.[g + 2] then blockBBox.[g + 2] <- tail.x
-    if tail.y > blockBBox.[g + 3] then blockBBox.[g + 3] <- tail.y
+    if tail.x < Arr.getIdx g blockBBox then Arr.setIdx g tail.x blockBBox
+    if tail.y < Arr.getIdx (g + 1) blockBBox then Arr.setIdx (g + 1) tail.y blockBBox
+    if tail.x > Arr.getIdx (g + 2) blockBBox then Arr.setIdx (g + 2) tail.x blockBBox
+    if tail.y > Arr.getIdx (g + 3) blockBBox then Arr.setIdx (g + 3) tail.y blockBBox
 
 // ensure the walk's exclusive bound is live so we don't overrun into other blocks
 let internal liveBlockStop(blockStop: Node[], b: int) : Node =
-    let mutable stop = blockStop.[b]
+    let mutable stop = Arr.getIdx b blockStop
     while stop.prev.next =!= stop do stop <- stop.next
-    blockStop.[b] <- stop
+    Arr.setIdx b stop blockStop
     stop
 
 // the block's head node can be removed by filterPoints during merges; advance it to the next
@@ -364,9 +366,9 @@ let internal liveBlockStop(blockStop: Node[], b: int) : Node =
 // single full-ring seed block (head === stop) the same forward advance keeps them equal, so the
 // do-while still laps the whole ring instead of collapsing to an empty walk.
 let internal liveBlockHead(blockHead: Node[], b: int) : Node =
-    let mutable head = blockHead.[b]
+    let mutable head = Arr.getIdx b blockHead
     while head.prev.next =!= head do head <- head.next
-    blockHead.[b] <- head
+    Arr.setIdx b head blockHead
     head
 
 // create a node and optionally link it with previous one (in a circular doubly linked list)
@@ -546,28 +548,28 @@ let inline internal sectorContainsSector(m: Node, p: Node) : bool =
 let internal radixPass(counts: int[], n: int, src: ResizeArray<Node>, srcZ: int[], dst: ResizeArray<Node>, dstZ: int[], shift: int) : unit =
     Array.fill counts 0 256 0
     for i = 0 to n - 1 do
-        let d = (srcZ.[i] >>> shift) &&& 0xff
-        counts.[d] <- counts.[d] + 1
+        let d = (Arr.getIdx i srcZ >>> shift) &&& 0xff
+        Arr.setIdx d (Arr.getIdx d counts + 1) counts
     // turn per-bucket counts into start offsets (prefix sum)
     let mutable sum = 0
     for b = 0 to 255 do
-        let c = counts.[b]
-        counts.[b] <- sum
+        let c = Arr.getIdx b counts
+        Arr.setIdx b sum counts
         sum <- sum + c
     for i = 0 to n - 1 do
-        let z = srcZ.[i]
+        let z = Arr.getIdx i srcZ
         let d = (z >>> shift) &&& 0xff
-        let pos = counts.[d]
-        counts.[d] <- pos + 1
-        dst.[pos] <- src.[i]
-        dstZ.[pos] <- z
+        let pos = Arr.getIdx d counts
+        Arr.setIdx d (pos + 1) counts
+        ResizeArr.setIdx pos (ResizeArr.getIdx i src) dst
+        Arr.setIdx pos z dstZ
 
 // sort the first n nodes of sortArr by z, in place: insertion sort for small n (cheaper
 // than histogram setup), else LSD radix in four 8-bit passes (covering z's 30 bits)
 let internal sortNodes(ws: Workspace, n: int) : unit =
     if n > 32 && ws.zArr.Length < n then
-        ws.zArr <- Array.zeroCreate<int> n
-        ws.zBuf <- Array.zeroCreate<int> n
+        ws.zArr <- Arr.undefCreateInt n
+        ws.zBuf <- Arr.undefCreateInt n
         // Radix scatter writes by index, so capacity alone is not enough.
         while ws.sortBuf.Count < n do
             ws.sortBuf.Add(Unchecked.defaultof<Node>)
@@ -578,16 +580,16 @@ let internal sortNodes(ws: Workspace, n: int) : unit =
     let sortBuf = ws.sortBuf
     if n <= 32 then
         for i = 1 to n - 1 do
-            let node = sortArr.[i]
+            let node = ResizeArr.getIdx i sortArr
             let z = node.z
             let mutable j = i - 1
-            while j >= 0 && sortArr.[j].z > z do
-                sortArr.[j + 1] <- sortArr.[j]
+            while j >= 0 && (ResizeArr.getIdx j sortArr).z > z do
+                ResizeArr.setIdx (j + 1) (ResizeArr.getIdx j sortArr) sortArr
                 j <- j - 1
-            sortArr.[j + 1] <- node
+            ResizeArr.setIdx (j + 1) node sortArr
     else
         for i = 0 to n - 1 do
-            zArr.[i] <- sortArr.[i].z
+            Arr.setIdx i ((ResizeArr.getIdx i sortArr).z) zArr
 
         // even pass count lands the sorted result back in sortArr
         radixPass(counts, n, sortArr, zArr, sortBuf, zBuf, 0)
@@ -598,7 +600,7 @@ let internal sortNodes(ws: Workspace, n: int) : unit =
 // interlink polygon nodes in z-order: collect into a reusable list, sort by z, relink
 let internal indexCurve(ws: Workspace, start: Node, minX: float, minY: float, invSize: float) : unit =
     let sortArr = ws.sortArr
-    sortArr.Clear()
+    ResizeArr.clear sortArr
     let mutable p = start
     let mutable continueLoop = true
     // do-while loop: execute once then check condition
@@ -614,24 +616,24 @@ let internal indexCurve(ws: Workspace, start: Node, minX: float, minY: float, in
 
     let mutable prev = Unchecked.defaultof<Node>
     for i = 0 to n - 1 do
-        let node = sortArr.[i]
+        let node = ResizeArr.getIdx i sortArr
         node.prevZ <- prev
         if notNull prev then prev.nextZ <- node
         prev <- node
     prev.nextZ <- Unchecked.defaultof<Node>
 
     // Drop node references while retaining storage for the next call.
-    sortArr.Clear()
+    ResizeArr.clear sortArr
     if n > 32 then
         for i = 0 to n - 1 do
-            ws.sortBuf.[i] <- Unchecked.defaultof<Node>
+            ResizeArr.setIdx i (Unchecked.defaultof<Node>) ws.sortBuf
 
 let inline internal signedArea(data: array<float>, start: int, end_: int, dim: int) : float =
     let mutable sum = 0.0
     let mutable i = start
     let mutable j = end_ - dim
     while i < end_ do
-        sum <- sum + (data.[j] - data.[i]) * (data.[i + 1] + data.[j + 1])
+        sum <- sum + (Arr.getIdx j data - Arr.getIdx i data) * (Arr.getIdx (i + 1) data + Arr.getIdx (j + 1) data)
         j <- i
         i <- i + dim
     sum
@@ -643,12 +645,12 @@ let internal linkedList(data: array<float>, start: int, end_: int, dim: int, clo
     if clockwise = (signedArea(data, start, end_, dim) > 0.0) then
         let mutable i = start
         while i < end_ do
-            last <- insertNode(i / dim, data.[i], data.[i + 1], last)
+            last <- insertNode(i / dim, Arr.getIdx i data, Arr.getIdx (i + 1) data, last)
             i <- i + dim
     else
         let mutable i = end_ - dim
         while i >= start do
-            last <- insertNode(i / dim, data.[i], data.[i + 1], last)
+            last <- insertNode(i / dim, Arr.getIdx i data, Arr.getIdx (i + 1) data, last)
             i <- i - dim
 
     if notNull last && equals(last, last.next) then
@@ -938,7 +940,7 @@ let internal findHoleBridge(blockBBox: float[], numBlocks: int, blockHead: Node[
         let mutable b = 0
         let mutable g = 0
         while not hasEarlyReturn && b < numBlocks do
-            if not (hy < blockBBox.[g + 1] || hy > blockBBox.[g + 3] || blockBBox.[g] > hx || blockBBox.[g + 2] <= qx) then
+            if not (hy < Arr.getIdx (g + 1) blockBBox || hy > Arr.getIdx (g + 3) blockBBox || Arr.getIdx g blockBBox > hx || Arr.getIdx (g + 2) blockBBox <= qx) then
                 // ensure the walk's exclusive bound is live so we don't overrun into other blocks
                 let stop = liveBlockStop(blockStop, b)
 
@@ -982,7 +984,7 @@ let internal findHoleBridge(blockBBox: float[], numBlocks: int, blockHead: Node[
             let mutable b = 0
             let mutable g = 0
             while b < numBlocks do
-                if not (blockBBox.[g + 2] < mx || blockBBox.[g] > hx || blockBBox.[g + 3] < tminY || blockBBox.[g + 1] > tmaxY) then
+                if not (Arr.getIdx (g + 2) blockBBox < mx || Arr.getIdx g blockBBox > hx || Arr.getIdx (g + 3) blockBBox < tminY || Arr.getIdx (g + 1) blockBBox > tmaxY) then
                     let stop = liveBlockStop(blockStop, b)
 
                     let mutable p = liveBlockHead(blockHead, b)
@@ -1045,14 +1047,20 @@ let internal eliminateHoles(ws: Workspace, data: array<float>, holeIndices: arra
     let queue = ResizeArray<Node>(holeIndices.Length)
 
     for i = 0 to holeIndices.Length - 1 do
-        let start = holeIndices.[i] * dim
-        let end_ = if i < holeIndices.Length - 1 then holeIndices.[i + 1] * dim else data.Length
+        let start = Arr.getIdx i holeIndices * dim
+        let end_ = if i < holeIndices.Length - 1 then Arr.getIdx (i + 1) holeIndices * dim else data.Length
         let list = linkedList(data, start, end_, dim, false)
         if list === list.next then
             steiners.Add(list) |> ignore
         queue.Add(getLeftmost(list))
 
+    // Holes that compare as equal must keep their input order, as they do in upstream: the JS
+    // Array.sort is stable. List.Sort on .NET is an unstable introsort, so sort stably there.
+    #if FABLE_COMPILER
     queue.Sort compareXYSlope
+    #else
+    let queue = ResizeArray<Node>(Seq.sortWith compareXYSlope queue)
+    #endif
 
     // block-bbox index for findHoleBridge, grown append-only as holes merge (see notes
     // above buildBlockIndex). Seed it with the outer ring, then append each merged hole.
@@ -1064,7 +1072,7 @@ let internal eliminateHoles(ws: Workspace, data: array<float>, holeIndices: arra
     ws.indexActive <- true
     let mutable outerNode = outerNode
     for i = 0 to queue.Count - 1 do
-        outerNode <- eliminateHole(ws, queue.[i], outerNode)
+        outerNode <- eliminateHole(ws, ResizeArr.getIdx i queue, outerNode)
     ws.indexActive <- false
 
     // collapse collinear/coincident points across the whole merged ring once before clipping
@@ -1090,6 +1098,9 @@ let internal eliminateHoles(ws: Workspace, data: array<float>, holeIndices: arra
 /// </code>
 /// (if dimensions = 2)</returns>
 let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : ResizeArray<int> =
+    // not in upstream, where dim defaults to 2: with unchecked array access a step of 0 would never finish the vertex loops
+    if dimensions < 2 then
+        raise (System.ArgumentException $"Earcut.earcut: dimensions must be at least 2, but got {dimensions}.")
     let triangles = ResizeArray<int>()
     if vertices.Length < dimensions * 3 then
         triangles
@@ -1097,7 +1108,7 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
         let ws = getWorkspace()
         let steiners = ws.steiners
         let hasHoles =  not (obj.ReferenceEquals(holeIndices, null))  && holeIndices.Length > 0
-        let outerLen = if hasHoles then holeIndices.[0] * dimensions else vertices.Length
+        let outerLen = if hasHoles then Arr.getIdx 0 holeIndices * dimensions else vertices.Length
         if steiners.Count > 0 then steiners.Clear()
 
         let mutable outerNode = linkedList(vertices, 0, outerLen, dimensions, true)
@@ -1114,15 +1125,15 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
 
             // if the shape is not too simple, we'll use z-order curve hash later; calculate polygon bbox
             if vertices.Length > 80 * dimensions then
-                minX <- vertices.[0]
-                minY <- vertices.[1]
+                minX <- Arr.getIdx 0 vertices
+                minY <- Arr.getIdx 1 vertices
                 let mutable maxX = minX
                 let mutable maxY = minY
 
                 let mutable i = dimensions
                 while i < outerLen do
-                    let x = vertices.[i]
-                    let y = vertices.[i + 1]
+                    let x = Arr.getIdx i vertices
+                    let y = Arr.getIdx (i + 1) vertices
                     if x < minX then minX <- x
                     if y < minY then minY <- y
                     if x > maxX then maxX <- x
@@ -1136,10 +1147,7 @@ let earcut(vertices: array<float>, holeIndices: array<int>, dimensions: int) : R
             earcutLinked(ws, outerNode, triangles, minX, minY, invSize)
             let splitStack = ws.splitStack
             while splitStack.Count > 0 do
-                let last = splitStack.Count - 1
-                let node = splitStack.[last]
-                splitStack.RemoveAt(last)
-                earcutLinked(ws, node, triangles, minX, minY, invSize)
+                earcutLinked(ws, ResizeArr.pop splitStack, triangles, minX, minY, invSize)
 
             triangles
 
@@ -1171,32 +1179,32 @@ let validate(vertices: array<float>, holeIndices: array<int>, dimensions: int) :
     let totalPoints = vertices.Length / dimensions
 
     for i = 0 to vertices.Length - 1 do
-        if System.Double.IsNaN(vertices.[i]) then
+        if System.Double.IsNaN(Arr.getIdx i vertices) then
             raise (System.ArgumentException $"Earcut.validate: Vertices array contains a NaN value at index {i}.")
-        if System.Double.IsInfinity(vertices.[i]) then
+        if System.Double.IsInfinity(Arr.getIdx i vertices) then
             raise (System.ArgumentException $"Earcut.validate: Vertices array contains an Infinity value at index {i}.")
 
     let hasHoles = not (obj.ReferenceEquals(holeIndices, null)) && holeIndices.Length > 0
 
-    let outerEnd = if hasHoles then holeIndices.[0] else totalPoints
+    let outerEnd = if hasHoles then Arr.getIdx 0 holeIndices else totalPoints
 
     if outerEnd < 3 then
         raise (System.ArgumentException $"Earcut.validate: Outer loop must have at least 3 points, but got {outerEnd}.")
 
     if hasHoles then
         for i = 0 to holeIndices.Length - 1 do
-            let idx = holeIndices.[i]
+            let idx = Arr.getIdx i holeIndices
             if idx < 0 || idx > totalPoints then
                 raise (System.ArgumentException $"Earcut.validate: Hole index {i} has value {idx} which is out of bounds [0, {totalPoints}].")
-            if i > 0 && idx <= holeIndices.[i - 1] then
+            if i > 0 && idx <= Arr.getIdx (i - 1) holeIndices then
                 raise (System.ArgumentException $"Earcut.validate: Hole indices must be in ascending order, but index {i} ({idx}) is not greater than index {i - 1} ({holeIndices.[i - 1]}).")
 
-        if holeIndices.[holeIndices.Length - 1] >= totalPoints then
+        if Arr.getIdx (holeIndices.Length - 1) holeIndices >= totalPoints then
             raise (System.ArgumentException $"Earcut.validate: Last hole index {holeIndices.[holeIndices.Length - 1]} is at or beyond the end of the vertices array ({totalPoints} points).")
 
         for i = 0 to holeIndices.Length - 1 do
-            let holeStart = holeIndices.[i]
-            let holeEnd = if i < holeIndices.Length - 1 then holeIndices.[i + 1] else totalPoints
+            let holeStart = Arr.getIdx i holeIndices
+            let holeEnd = if i < holeIndices.Length - 1 then Arr.getIdx (i + 1) holeIndices else totalPoints
             let holePointCount = holeEnd - holeStart
             if holePointCount < 1 then
                 raise (System.ArgumentException $"Earcut.validate: Hole {i} has {holePointCount} points, but must have at least 1.")
@@ -1206,36 +1214,39 @@ let validate(vertices: array<float>, holeIndices: array<int>, dimensions: int) :
         let outerArea = abs(signedArea(vertices, 0, outerEnd * dimensions, dimensions))
         let mutable holeAreaSum = 0.0
         for i = 0 to holeIndices.Length - 1 do
-            let start = holeIndices.[i] * dimensions
-            let end_ = if i < holeIndices.Length - 1 then holeIndices.[i + 1] * dimensions else vertices.Length
+            let start = Arr.getIdx i holeIndices * dimensions
+            let end_ = if i < holeIndices.Length - 1 then Arr.getIdx (i + 1) holeIndices * dimensions else vertices.Length
             holeAreaSum <- holeAreaSum + abs(signedArea(vertices, start, end_, dimensions))
 
         if holeAreaSum >= outerArea && outerArea > 0.0 then
             raise (System.ArgumentException $"Earcut.validate: Total area of holes ({holeAreaSum}) is not smaller than the area of the outer loop ({outerArea}).")
 
 /// Utility function to verify correctness of the triangulation.
-/// Returns a percentage difference between the polygon area and its triangulation area.
-/// used to detect any significant errors in the triangulation process.
+/// Returns the relative difference between the polygon area and its triangulation area (0.0 means they match, 0.5 means 50% off).
+/// Used to detect any significant errors in the triangulation process.
 let deviation(vertices: array<float>, holeIndices: array<int>, dim: int, triangles: ResizeArray<int>) : float =
+    // not in upstream: with unchecked array access a step of 0 would never finish the vertex loops
+    if dim < 2 then
+        raise (System.ArgumentException $"Earcut.deviation: dim must be at least 2, but got {dim}.")
     let hasHoles = not (obj.ReferenceEquals(holeIndices, null)) && holeIndices.Length > 0
-    let outerLen = if hasHoles then holeIndices.[0] * dim else vertices.Length
+    let outerLen = if hasHoles then Arr.getIdx 0 holeIndices * dim else vertices.Length
 
     let mutable polygonArea = abs(signedArea(vertices, 0, outerLen, dim))
     if hasHoles then
         for i = 0 to holeIndices.Length - 1 do
-            let start = holeIndices.[i] * dim
-            let end_ = if i < holeIndices.Length - 1 then holeIndices.[i + 1] * dim else vertices.Length
+            let start = Arr.getIdx i holeIndices * dim
+            let end_ = if i < holeIndices.Length - 1 then Arr.getIdx (i + 1) holeIndices * dim else vertices.Length
             polygonArea <- polygonArea - abs(signedArea(vertices, start, end_, dim))
 
     let mutable trianglesArea = 0.0
     let mutable i = 0
     while i < triangles.Count do
-        let a = triangles.[i] * dim
-        let b = triangles.[i + 1] * dim
-        let c = triangles.[i + 2] * dim
+        let a = ResizeArr.getIdx i triangles * dim
+        let b = ResizeArr.getIdx (i + 1) triangles * dim
+        let c = ResizeArr.getIdx (i + 2) triangles * dim
         trianglesArea <- trianglesArea + abs(
-            (vertices.[a] - vertices.[c]) * (vertices.[b + 1] - vertices.[a + 1]) -
-            (vertices.[a] - vertices.[b]) * (vertices.[c + 1] - vertices.[a + 1]))
+            (Arr.getIdx a vertices - Arr.getIdx c vertices) * (Arr.getIdx (b + 1) vertices - Arr.getIdx (a + 1) vertices) -
+            (Arr.getIdx a vertices - Arr.getIdx b vertices) * (Arr.getIdx (c + 1) vertices - Arr.getIdx (a + 1) vertices))
         i <- i + 3
 
     if trianglesArea = 0.0 then
@@ -1243,13 +1254,13 @@ let deviation(vertices: array<float>, holeIndices: array<int>, dim: int, triangl
         // with no triangles, a polygon area within shoelace roundoff of zero (which scales with the
         // squared coordinate magnitude) means the input was degenerate rather than mistriangulated
 
-        // Number.EPSILON (2^-52), is tottally not the same as System.Double.Epsilon!!  for parity with upstream JS.
+        // The JS Number.EPSILON (2^-52) is not the same as System.Double.Epsilon, so spell it out for parity with upstream JS.
         let machineEpsilon = 2.220446049250313e-16
         let mutable maxCoordinate = 0.0
         let mutable i = 0
         while i < vertices.Length do
-            maxCoordinate <- max maxCoordinate (abs(vertices.[i]))
-            maxCoordinate <- max maxCoordinate (abs(vertices.[i + 1]))
+            maxCoordinate <- max maxCoordinate (abs(Arr.getIdx i vertices))
+            maxCoordinate <- max maxCoordinate (abs(Arr.getIdx (i + 1) vertices))
             i <- i + dim
         if abs(polygonArea) <= float vertices.Length * maxCoordinate * maxCoordinate * machineEpsilon then
             0.0
@@ -1271,10 +1282,13 @@ let flatten(data: float[][][])  =
     let dimensions = data.[0].[0].Length
     let mutable holeIndex = 0
 
-    for ring in data do
-        for p in ring do
+    // index loops instead of `for ring in data`, which Fable compiles to bounds-checked item() calls
+    for r = 0 to data.Length - 1 do
+        let ring = Arr.getIdx r data
+        for i = 0 to ring.Length - 1 do
+            let p = Arr.getIdx i ring
             for d = 0 to dimensions - 1 do
-                vertices.Add(p.[d])
+                vertices.Add(Arr.getIdx d p)
         if holeIndex > 0 && ring.Length > 0 then holes.Add(holeIndex) // skip empty rings
         holeIndex <- holeIndex + ring.Length
 
@@ -1317,13 +1331,15 @@ let internal ensureScratch(ws: Workspace, n: int) : unit =
     let hTable = ws.hTable
     // edgeStack holds at most one entry per half-edge (edgeStamp dedups), so n is a safe cap -
     // sizing it up front lets the cascade push without a bounds/grow check.
-    if edgeStack.Length < n then ws.edgeStack <- Array.zeroCreate<int> n
-    if he.Length < n then ws.he <- Array.zeroCreate<int> n
+    // edgeStamp and hStamp rely on starting out all-zero, so they keep Array.zeroCreate;
+    // the others are fully written before they are read
+    if edgeStack.Length < n then ws.edgeStack <- Arr.undefCreateInt n
+    if he.Length < n then ws.he <- Arr.undefCreateInt n
     if edgeStamp.Length < n then ws.edgeStamp <- Array.zeroCreate<int> n
     let mutable size = 1
     while size < n * 4 do size <- size <<< 1 // power-of-two table, load factor <= 0.25
     if hTable.Length < size then
-        ws.hTable <- Array.zeroCreate<int> size
+        ws.hTable <- Arr.undefCreateInt size
         ws.hStamp <- Array.zeroCreate<int> size
     ws.hMask <- size - 1
 
@@ -1346,10 +1362,10 @@ let refine(triangles: ResizeArray<int>, coords: array<float>, dim: int) : unit =
         let mutable k = 0
         let mutable o = 0.0
         while o = 0.0 && k < n do
-            let a = t.[k] * dim
-            let b = t.[k + 1] * dim
-            let c = t.[k + 2] * dim
-            o <- orient(coords.[a], coords.[a + 1], coords.[b], coords.[b + 1], coords.[c], coords.[c + 1])
+            let a = ResizeArr.getIdx k t * dim
+            let b = ResizeArr.getIdx (k + 1) t * dim
+            let c = ResizeArr.getIdx (k + 2) t * dim
+            o <- orient(Arr.getIdx a coords, Arr.getIdx (a + 1) coords, Arr.getIdx b coords, Arr.getIdx (b + 1) coords, Arr.getIdx c coords, Arr.getIdx (c + 1) coords)
             cw <- o < 0.0
             k <- k + 3
 
@@ -1372,36 +1388,36 @@ let refine(triangles: ResizeArray<int>, coords: array<float>, dim: int) : unit =
         // the seed write needs no dedup guard.
         let mutable i = 0
         for e = 0 to n - 1 do
-            let a = t.[e]
-            let b = t.[nextHE(e)]
+            let a = ResizeArr.getIdx e t
+            let b = ResizeArr.getIdx (nextHE(e)) t
             let lo = if a < b then a else b
             let hi = if a < b then b else a
             let mutable h = (imul lo (int 0x9e3779b1u) ^^^ imul hi (int 0x85ebca6bu)) &&& hMask
             let mutable searching = true
-            while searching && hStamp.[h] = gen do
-                let s = hTable.[h]
+            while searching && Arr.getIdx h hStamp = gen do
+                let s = Arr.getIdx h hTable
                 // s = -1 marks a consumed slot (a pair already linked) - skip past it
                 if s <> -1 then
-                    let sa = t.[s]
-                    let sb = t.[nextHE(s)]
+                    let sa = ResizeArr.getIdx s t
+                    let sb = ResizeArr.getIdx (nextHE(s)) t
                     if (sa = lo && sb = hi) || (sa = hi && sb = lo) then
-                        he.[e] <- s // link, then consume the slot
-                        he.[s] <- e
-                        hTable.[h] <- -1
-                        edgeStamp.[s] <- 1 // seed the interior edge for the cascade
-                        edgeStack.[i] <- s
+                        Arr.setIdx e s he // link, then consume the slot
+                        Arr.setIdx s e he
+                        Arr.setIdx h (-1) hTable
+                        Arr.setIdx s 1 edgeStamp // seed the interior edge for the cascade
+                        Arr.setIdx i s edgeStack
                         i <- i + 1
                         searching <- false
                 if searching then h <- (h + 1) &&& hMask
-            if hStamp.[h] <> gen then // first occurrence: insert
-                hTable.[h] <- e
-                hStamp.[h] <- gen
+            if Arr.getIdx h hStamp <> gen then // first occurrence: insert
+                Arr.setIdx h e hTable
+                Arr.setIdx h gen hStamp
 
         while i > 0 do
             i <- i - 1
-            let a = edgeStack.[i]
-            edgeStamp.[a] <- 0
-            let b = he.[a]
+            let a = Arr.getIdx i edgeStack
+            Arr.setIdx a 0 edgeStamp
+            let b = Arr.getIdx a he
             if b <> -1 then
                 let a0 = a - a % 3
                 let b0 = b - b % 3
@@ -1409,19 +1425,19 @@ let refine(triangles: ResizeArray<int>, coords: array<float>, dim: int) : unit =
                 let al = a0 + (a + 1) % 3
                 let bl = b0 + (b + 2) % 3
                 let br = b0 + (b + 1) % 3
-                let p0 = t.[ar]
-                let pr = t.[if cw then al else a]
-                let pl = t.[if cw then a else al]
-                let p1 = t.[bl]
+                let p0 = ResizeArr.getIdx ar t
+                let pr = ResizeArr.getIdx (if cw then al else a) t
+                let pl = ResizeArr.getIdx (if cw then a else al) t
+                let p1 = ResizeArr.getIdx bl t
 
-                let x0 = coords.[p0 * dim]
-                let y0 = coords.[p0 * dim + 1]
-                let xr = coords.[pr * dim]
-                let yr = coords.[pr * dim + 1]
-                let xl = coords.[pl * dim]
-                let yl = coords.[pl * dim + 1]
-                let x1 = coords.[p1 * dim]
-                let y1 = coords.[p1 * dim + 1]
+                let x0 = Arr.getIdx (p0 * dim) coords
+                let y0 = Arr.getIdx (p0 * dim + 1) coords
+                let xr = Arr.getIdx (pr * dim) coords
+                let yr = Arr.getIdx (pr * dim + 1) coords
+                let xl = Arr.getIdx (pl * dim) coords
+                let yl = Arr.getIdx (pl * dim + 1) coords
+                let x1 = Arr.getIdx (p1 * dim) coords
+                let y1 = Arr.getIdx (p1 * dim + 1) coords
 
                 // Test inCircle first: most interior edges are already Delaunay (inCircle true → no flip),
                 // so this short-circuits before the two convexity orients on the common path. The quad must
@@ -1429,40 +1445,39 @@ let refine(triangles: ResizeArray<int>, coords: array<float>, dim: int) : unit =
                 // outside the polygon. Boundary/hole edges need no guard - they self-protect via he = -1.
                 if not (inCircle(x0, y0, xr, yr, xl, yl, x1, y1)) &&
                     orient(x0, y0, xr, yr, x1, y1) > 0.0 && orient(x0, y0, x1, y1, xl, yl) > 0.0 then
-                    t.[a] <- p1
-                    t.[b] <- p0
-                    let hbl = he.[bl]
-                    let har = he.[ar]
-                    he.[a] <- hbl
-                    if hbl <> -1 then he.[hbl] <- a
-                    he.[b] <- har
-                    if har <> -1 then he.[har] <- b
-                    he.[ar] <- bl
-                    he.[bl] <- ar
+                    ResizeArr.setIdx a p1 t
+                    ResizeArr.setIdx b p0 t
+                    let hbl = Arr.getIdx bl he
+                    let har = Arr.getIdx ar he
+                    Arr.setIdx a hbl he
+                    if hbl <> -1 then Arr.setIdx hbl a he
+                    Arr.setIdx b har he
+                    if har <> -1 then Arr.setIdx har b he
+                    Arr.setIdx ar bl he
+                    Arr.setIdx bl ar he
 
                     // re-check the quad's four outer edges; skip boundary edges (he = -1) and any
                     // already queued (edgeStamp), which also keeps the stack bounded by n.
-                    if hbl <> -1 && edgeStamp.[a] = 0 then
-                        edgeStamp.[a] <- 1
-                        edgeStack.[i] <- a
+                    if hbl <> -1 && Arr.getIdx a edgeStamp = 0 then
+                        Arr.setIdx a 1 edgeStamp
+                        Arr.setIdx i a edgeStack
                         i <- i + 1
-                    if har <> -1 && edgeStamp.[b] = 0 then
-                        edgeStamp.[b] <- 1
-                        edgeStack.[i] <- b
+                    if har <> -1 && Arr.getIdx b edgeStamp = 0 then
+                        Arr.setIdx b 1 edgeStamp
+                        Arr.setIdx i b edgeStack
                         i <- i + 1
-                    if he.[al] <> -1 && edgeStamp.[al] = 0 then
-                        edgeStamp.[al] <- 1
-                        edgeStack.[i] <- al
+                    if Arr.getIdx al he <> -1 && Arr.getIdx al edgeStamp = 0 then
+                        Arr.setIdx al 1 edgeStamp
+                        Arr.setIdx i al edgeStack
                         i <- i + 1
-                    if he.[br] <> -1 && edgeStamp.[br] = 0 then
-                        edgeStamp.[br] <- 1
-                        edgeStack.[i] <- br
+                    if Arr.getIdx br he <> -1 && Arr.getIdx br edgeStamp = 0 then
+                        Arr.setIdx br 1 edgeStamp
+                        Arr.setIdx i br edgeStack
                         i <- i + 1
 
 
-///<summary> Triangulates a polygon with holes, given as ResizeArray flat X and Y coordinates.
-/// Any object with x and y properties will work as a point object. (via F# statically resolved type parameters)</summary>
-/// <param name="holes">An IList of holes, where each hole is an ResizeArray of x and y . Use `null` or empty array if there are no holes.</param>
+///<summary> Triangulates a polygon with holes, given as ResizeArrays of flat x and y coordinates like [x0, y0, x1, y1, x2, y2, ...].</summary>
+/// <param name="holes">An IList of holes, where each hole is an ResizeArray of x and y . Use `null` or empty array if there are no holes. Empty holes are skipped.</param>
 /// <param name="boundary">An ResizeArray of x and y coordinates representing the outer polygon.</param>
 /// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
 /// Every six consecutive values represent a triangle in 2D space.</returns>
@@ -1474,36 +1489,40 @@ let earcutTriangles(holes: IList<ResizeArray<float>>) (boundary: ResizeArray<flo
         size <- size + hole.Count
 
     let mutable ii = boundary.Count
-    let holesIdx = Array.zeroCreate<int> holes.Count
+    let holesIdx = ResizeArray<int>(holes.Count)
     let xys = Array.zeroCreate<float> size
     for i=0 to boundary.Count - 1 do
-        xys.[i] <- boundary.[i]
+        Arr.setIdx i (ResizeArr.getIdx i boundary) xys
 
     for j = 0 to holes.Count - 1 do
         let hole = holes.[j]
-        holesIdx.[j] <- ii/2 // divide by 2 because xys is a flat array of coordinates
-        for k=0 to hole.Count - 1 do
-            xys.[ii+k] <- hole.[k]
-        ii <- ii + hole.Count
+        if hole.Count > 0 then // skip empty holes like flatten does, earcut can't handle a hole without points
+            holesIdx.Add(ii/2) // divide by 2 because xys is a flat array of coordinates
+            for k=0 to hole.Count - 1 do
+                Arr.setIdx (ii+k) (ResizeArr.getIdx k hole) xys
+            ii <- ii + hole.Count
 
-    let triaIdxs = earcut(xys, holesIdx, 2)
+    let triaIdxs = earcut(xys, holesIdx.ToArray(), 2)
 
     let len = triaIdxs.Count * 2
     let trias = Array.zeroCreate<float> len
     let mutable j = 0
     for i=0 to triaIdxs.Count - 1 do
-        let xIdx = triaIdxs.[i] * 2
-        trias.[j] <- xys.[xIdx]
+        let xIdx = ResizeArr.getIdx i triaIdxs * 2
+        Arr.setIdx j (Arr.getIdx xIdx xys) trias
         j <- j + 1
 
         let yIdx = xIdx + 1
-        trias.[j] <- xys.[yIdx]
+        Arr.setIdx j (Arr.getIdx yIdx xys) trias
         j <- j + 1
     trias
 
-///<summary> Triangulates a polygon with holes, given as arrays of objects wit x and y properties (lowercase).
+// The two SRTP wrappers below are public inline functions, which can't call the internal
+// Arr / ResizeArr helpers, so they use plain indexing.
+
+///<summary> Triangulates a polygon with holes, given as arrays of objects with x and y properties (lowercase).
 /// Any object with x and y properties will work as a point object. (via F# statically resolved type parameters)</summary>
-/// <param name="holes">An IList of holes, where each hole is an ResizeArray of points. Use `null` or empty array if there are no holes.</param>
+/// <param name="holes">An IList of holes, where each hole is an ResizeArray of points. Use `null` or empty array if there are no holes. Empty holes are skipped.</param>
 /// <param name="pts">An ResizeArray of points representing the outer polygon.</param>
 /// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
 /// Every six consecutive values represent a triangle in 2D space.</returns>
@@ -1514,7 +1533,7 @@ let inline earcutTrianglesFromMembersxy (holes: IList<ResizeArray<'T>>) (pts: Re
         size <- size + hole.Count * 2
 
     let mutable ii = 0
-    let holesIdx = Array.zeroCreate<int> holes.Count
+    let holesIdx = ResizeArray<int>(holes.Count)
     let xys = Array.zeroCreate<float> size
     for i=0 to pts.Count - 1 do
         let p = pts.[i]
@@ -1524,14 +1543,15 @@ let inline earcutTrianglesFromMembersxy (holes: IList<ResizeArray<'T>>) (pts: Re
         ii <- ii + 1
     for j = 0 to holes.Count - 1 do
         let hole = holes.[j]
-        holesIdx.[j] <- ii / 2 // divide by 2 because xys is a flat array of coordinates
-        for k=0 to hole.Count - 1 do
-            let p = hole.[k]
-            xys.[ii] <- p.x
-            ii <- ii + 1
-            xys.[ii] <- p.y
-            ii <- ii + 1
-    let triaIdxs = earcut(xys, holesIdx, 2)
+        if hole.Count > 0 then // skip empty holes like flatten does, earcut can't handle a hole without points
+            holesIdx.Add(ii / 2) // divide by 2 because xys is a flat array of coordinates
+            for k=0 to hole.Count - 1 do
+                let p = hole.[k]
+                xys.[ii] <- p.x
+                ii <- ii + 1
+                xys.[ii] <- p.y
+                ii <- ii + 1
+    let triaIdxs = earcut(xys, holesIdx.ToArray(), 2)
 
     let len = triaIdxs.Count * 2
     let trias = Array.zeroCreate<float> len
@@ -1548,7 +1568,7 @@ let inline earcutTrianglesFromMembersxy (holes: IList<ResizeArray<'T>>) (pts: Re
 
 ///<summary> Triangulates a polygon with holes, given as arrays of objects with X and Y properties (Uppercase).
 /// Any object with X and Y properties will work as a point object. (via F# statically resolved type parameters)</summary>
-/// <param name="holes">An IList of holes, where each hole is an ResizeArray of points. Use `null` or empty array if there are no holes.</param>
+/// <param name="holes">An IList of holes, where each hole is an ResizeArray of points. Use `null` or empty array if there are no holes. Empty holes are skipped.</param>
 /// <param name="pts">An ResizeArray of points representing the outer polygon.</param>
 /// <returns>A flat array of vertex coordinates like [x0, y0, x1, y1, x2, y2, ...] representing the triangulation of the polygon.
 /// Every six consecutive values represent a triangle in 2D space.</returns>
@@ -1559,7 +1579,7 @@ let inline earcutTrianglesFromMembersXY (holes: IList<ResizeArray<'T>>) (pts: Re
         size <- size + hole.Count * 2
 
     let mutable ii = 0
-    let holesIdx = Array.zeroCreate<int> holes.Count
+    let holesIdx = ResizeArray<int>(holes.Count)
     let xys = Array.zeroCreate<float> size
     for i=0 to pts.Count - 1 do
         let p = pts.[i]
@@ -1569,14 +1589,15 @@ let inline earcutTrianglesFromMembersXY (holes: IList<ResizeArray<'T>>) (pts: Re
         ii <- ii + 1
     for j = 0 to holes.Count - 1 do
         let hole = holes.[j]
-        holesIdx.[j] <- ii / 2 // divide by 2 because xys is a flat array of coordinates
-        for k=0 to hole.Count - 1 do
-            let p = hole.[k]
-            xys.[ii] <- p.X
-            ii <- ii + 1
-            xys.[ii] <- p.Y
-            ii <- ii + 1
-    let triaIdxs = earcut(xys, holesIdx, 2)
+        if hole.Count > 0 then // skip empty holes like flatten does, earcut can't handle a hole without points
+            holesIdx.Add(ii / 2) // divide by 2 because xys is a flat array of coordinates
+            for k=0 to hole.Count - 1 do
+                let p = hole.[k]
+                xys.[ii] <- p.X
+                ii <- ii + 1
+                xys.[ii] <- p.Y
+                ii <- ii + 1
+    let triaIdxs = earcut(xys, holesIdx.ToArray(), 2)
 
     let len = triaIdxs.Count * 2
     let trias = Array.zeroCreate<float> len

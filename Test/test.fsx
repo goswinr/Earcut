@@ -11,17 +11,6 @@ open Newtonsoft.Json
 open Earcut
 
 
-// these tests pass standalone but fail when run in rhino:
-//❌ FAIL: touching-holes3 rotation 90: deviation 0.247344 <= 0.000000
-//❌ FAIL: touching-holes3 rotation 180: deviation 0.267071 <= 0.000000
-//❌ FAIL: touching-holes4 rotation 270: deviation 0.084991 <= 0.000000
-//❌ FAIL: touching-holes5 rotation 180: deviation 0.133536 <= 0.000000
-//❌ FAIL: touching-holes5 rotation 270: deviation 0.257208 <= 0.000000
-//❌ FAIL: water-huge rotation 180: deviation 0.041519 <= 0.003500
-//❌ FAIL: water-huge2 rotation 180: deviation 0.085782 <= 0.061000
-//❌ FAIL: water3 rotation 180: deviation 0.001152 <= 0.000000
-
-
 // Helper to read JSON files
 let readJson<'T> (filename: string) =
     let path = Path.Combine(__SOURCE_DIRECTORY__, filename)
@@ -627,6 +616,120 @@ runTest "concurrent triangulation and refinement" (fun () ->
     assertOk errors.IsEmpty (sprintf "concurrent calls match sequential results: %A" (errors.ToArray()))
 )
 #endif
+
+// ============================================================
+// Tests that are not in upstream: hole ordering and the F#-only API
+// ============================================================
+
+// Holes that compare as equal in compareXYSlope must be merged in input order, as the stable JS
+// sort does. List.Sort on .NET is unstable from three elements on, which used to reorder them (and
+// lose a triangle in the second case). The expected indices are the output of upstream earcut.js.
+runTest "tied holes keep their input order" (fun () ->
+    let outer = [| 0.0; 0.0; 10.0; 0.0; 10.0; 10.0; 0.0; 10.0 |]
+    // two Steiner points on the same spot, then one further left
+    let steiners = Array.append outer [| 5.0; 5.0;  5.0; 5.0;  2.0; 2.0 |]
+    // two triangles sharing their leftmost point and first edge direction, then one further left
+    let triangles = Array.append outer [| 5.0; 5.0; 6.0; 6.0; 6.0; 5.0;  5.0; 5.0; 7.0; 7.0; 7.0; 5.0;  2.0; 2.0; 3.0; 3.0; 3.0; 2.0 |]
+    assertDeepEqual (ResizeArray([6; 0; 1; 5; 6; 1; 5; 1; 2; 5; 2; 3; 5; 3; 0]))
+        (earcut(steiners, [| 4; 5; 6 |], 2)) "tied holes: duplicate Steiner points" &&
+    assertDeepEqual (ResizeArray([4; 11; 12; 12; 10; 0; 12; 0; 1; 4; 12; 1; 1; 8; 9; 4; 1; 9; 8; 1; 2; 8; 2; 3; 8; 3; 0]))
+        (earcut(triangles, [| 4; 7; 10 |], 2)) "tied holes: triangles sharing their leftmost point"
+)
+
+// With unchecked array access (Fable Release builds) a coordinate step of 0 would loop forever, so it is rejected up front.
+runTest "earcut and deviation reject dimensions below 2" (fun () ->
+    let square = [| 0.0; 0.0; 10.0; 0.0; 10.0; 10.0; 0.0; 10.0 |]
+    let throwsArgument (name: string) (f: unit -> unit) =
+        try
+            f ()
+            assertOk false (sprintf "%s, but it did not throw" name)
+        with
+        | :? ArgumentException -> assertOk true name
+        | ex -> assertOk false (sprintf "%s, but with %s instead of ArgumentException" name (ex.GetType().Name))
+    throwsArgument "earcut rejects dimensions 0" (fun () -> earcut(square, null, 0) |> ignore) &&
+    throwsArgument "earcut rejects dimensions 1" (fun () -> earcut(square, null, 1) |> ignore) &&
+    throwsArgument "deviation rejects dim 0" (fun () -> deviation(square, null, 0, ResizeArray<int>()) |> ignore) &&
+    throwsArgument "deviation rejects dim 1" (fun () -> deviation(square, null, 1, ResizeArray<int>()) |> ignore)
+)
+
+let validateAccepts (name: string) (vertices: float[], holes: int[], dimensions: int) =
+    try
+        validate(vertices, holes, dimensions)
+        assertOk true (sprintf "validate accepts %s" name)
+    with ex ->
+        assertOk false (sprintf "validate accepts %s, but it threw: %s" name ex.Message)
+
+// expects an ArgumentException whose message contains the given fragment
+let validateRejects (name: string) (fragment: string) (vertices: float[], holes: int[], dimensions: int) =
+    try
+        validate(vertices, holes, dimensions)
+        assertOk false (sprintf "validate rejects %s, but it did not throw" name)
+    with
+    | :? ArgumentException as ex ->
+        assertOk (ex.Message.Contains fragment) (sprintf "validate rejects %s: %s" name ex.Message)
+    | ex ->
+        assertOk false (sprintf "validate rejects %s, but with %s instead of ArgumentException" name (ex.GetType().Name))
+
+runTest "validate" (fun () ->
+    let square = [| 0.0; 0.0; 10.0; 0.0; 10.0; 10.0; 0.0; 10.0 |]
+    let withHole = Array.append square [| 2.0; 2.0; 4.0; 2.0; 3.0; 4.0 |] // 7 points
+    let withTwoHoles = Array.append withHole [| 6.0; 6.0; 8.0; 6.0; 7.0; 8.0 |] // 10 points
+    validateAccepts "a polygon without holes" (square, null, 2) &&
+    validateAccepts "an empty hole array" (square, [||], 2) &&
+    validateAccepts "a polygon with one hole" (withHole, [| 4 |], 2) &&
+    validateAccepts "a single point hole as Steiner point" (Array.append square [| 5.0; 5.0 |], [| 4 |], 2) &&
+    validateAccepts "3D coordinates" ([| 0.0; 0.0; 1.0; 10.0; 0.0; 1.0; 10.0; 10.0; 1.0 |], null, 3) &&
+    validateRejects "dimensions below 2" "Dimensions must be at least 2" (square, null, 1) &&
+    validateRejects "null vertices" "null or empty" (null, null, 2) &&
+    validateRejects "empty vertices" "null or empty" ([||], null, 2) &&
+    validateRejects "a length that is not a multiple of dimensions" "not a multiple of dimensions" (Array.append square [| 1.0 |], null, 2) &&
+    validateRejects "NaN" "NaN value at index 2" ([| 0.0; 0.0; nan; 0.0; 10.0; 10.0 |], null, 2) &&
+    validateRejects "Infinity" "Infinity value at index 2" ([| 0.0; 0.0; infinity; 0.0; 10.0; 10.0 |], null, 2) &&
+    validateRejects "an outer ring with fewer than 3 points" "Outer loop must have at least 3 points" (withHole, [| 2 |], 2) &&
+    validateRejects "a hole index past the end" "out of bounds" (withHole, [| 9 |], 2) &&
+    validateRejects "hole indices that are not ascending" "ascending order" (withTwoHoles, [| 7; 4 |], 2) &&
+    validateRejects "an empty last hole" "at or beyond the end" (withHole, [| 4; 7 |], 2) &&
+    validateRejects "a hole with 2 points" "has only 2 points" (Array.append square [| 2.0; 2.0; 4.0; 2.0 |], [| 4 |], 2) &&
+    validateRejects "holes larger than the outer ring" "not smaller than the area of the outer loop"
+        (Array.append square [| -5.0; -5.0; 20.0; -5.0; 20.0; 20.0; -5.0; 20.0 |], [| 4 |], 2)
+)
+
+// summed area of the triangles in a flat [x0; y0; x1; y1; x2; y2; ...] coordinate array
+let coordinateTrianglesArea (xys: float[]) : float =
+    let mutable area = 0.0
+    let mutable i = 0
+    while i < xys.Length do
+        area <- area + abs ((xys.[i + 2] - xys.[i]) * (xys.[i + 5] - xys.[i + 1]) - (xys.[i + 4] - xys.[i]) * (xys.[i + 3] - xys.[i + 1])) / 2.0
+        i <- i + 6
+    area
+
+// point types for the statically resolved wrappers: lowercase x/y and uppercase X/Y members
+type PointLower = { x: float; y: float }
+type PointUpper = { X: float; Y: float }
+
+runTest "convenience wrappers return triangle coordinates and skip empty holes" (fun () ->
+    let boundary = ResizeArray [ 0.0; 0.0; 10.0; 0.0; 10.0; 10.0; 0.0; 10.0 ]
+    let hole = ResizeArray [ 2.0; 2.0; 4.0; 2.0; 4.0; 4.0; 2.0; 4.0 ]
+    let toLower (xys: ResizeArray<float>) = ResizeArray [ for i in 0 .. 2 .. xys.Count - 2 -> { PointLower.x = xys.[i]; y = xys.[i + 1] } ]
+    let toUpper (xys: ResizeArray<float>) = ResizeArray [ for i in 0 .. 2 .. xys.Count - 2 -> { PointUpper.X = xys.[i]; Y = xys.[i + 1] } ]
+
+    let plain = earcutTriangles null boundary
+    let holed = earcutTriangles [| hole |] boundary
+    assertEqual (2 * 6) plain.Length "earcutTriangles: a square gives two triangles" &&
+    assertEqual 100.0 (coordinateTrianglesArea plain) "earcutTriangles: area of the square" &&
+    assertEqual (8 * 6) holed.Length "earcutTriangles: a square with a square hole gives eight triangles" &&
+    assertEqual 96.0 (coordinateTrianglesArea holed) "earcutTriangles: area without the hole" &&
+    assertEqual plain (earcutTriangles [||] boundary) "earcutTriangles: no holes" &&
+    // an empty hole used to end in a NullReferenceException inside earcut
+    assertEqual plain (earcutTriangles [| ResizeArray<float>() |] boundary) "earcutTriangles: only an empty hole" &&
+    assertEqual holed (earcutTriangles [| ResizeArray<float>(); hole; ResizeArray<float>() |] boundary) "earcutTriangles: empty holes are skipped" &&
+    assertEqual plain (earcutTrianglesFromMembersxy null (toLower boundary)) "earcutTrianglesFromMembersxy: no holes" &&
+    assertEqual holed (earcutTrianglesFromMembersxy [| toLower hole |] (toLower boundary)) "earcutTrianglesFromMembersxy: one hole" &&
+    assertEqual holed (earcutTrianglesFromMembersxy [| ResizeArray<PointLower>(); toLower hole |] (toLower boundary)) "earcutTrianglesFromMembersxy: empty holes are skipped" &&
+    assertEqual plain (earcutTrianglesFromMembersXY null (toUpper boundary)) "earcutTrianglesFromMembersXY: no holes" &&
+    assertEqual holed (earcutTrianglesFromMembersXY [| toUpper hole |] (toUpper boundary)) "earcutTrianglesFromMembersXY: one hole" &&
+    assertEqual holed (earcutTrianglesFromMembersXY [| toUpper hole; ResizeArray<PointUpper>() |] (toUpper boundary)) "earcutTrianglesFromMembersXY: empty holes are skipped"
+)
 
 // Print summary
 printfn ""
