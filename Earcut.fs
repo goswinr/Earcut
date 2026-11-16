@@ -156,7 +156,7 @@ module internal ResizeArr =
         #endif
 
     let inline pop (arr: ResizeArray<'T>) : 'T =
-        #if FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT
+        #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
             Fable.Core.JsInterop.emitJsExpr (arr) "$0.pop()"
         #else
             let v = arr.[arr.Count - 1]

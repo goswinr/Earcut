@@ -7,6 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 The first three digits of the version number correspond to the original Mapbox Earcut version (e.g. `3.2.42` = original Earcut 3.2.4),
 while the last digits indicate the release number of this F# port. So the version numbers do not follow Semantic Versioning.
 
+## [3.2.43] - 2026-11-16
+### Changed
+- The NuGet release workflow publishes with [trusted publishing](https://learn.microsoft.com/en-us/nuget/nuget-org/trusted-publishing) (GitHub OIDC) instead of a long-lived API key secret. The 3.2.42 push failed because that key had expired, so 3.2.43 has the same library code.
+### Fixed
+- `ResizeArr.pop` emits the unchecked `pop()` only in Fable Release builds, like the other `Arr` and `ResizeArr` helpers. Debug builds keep the bounds check.
+
 ## [3.2.42] - 2026-11-15
 ### Fixed
 - Avoid quadratic point checks when triangulating large strictly convex polygons, porting [mapbox/earcut#212](https://github.com/mapbox/earcut/pull/212). The hashed ear-slicing loop skips point checks until a candidate fails its convexity check.
