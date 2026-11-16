@@ -66,10 +66,15 @@ let inline internal imul (a: int) (b: int) : int =
 
 
 module internal Arr =
+    // Unchecked array access for the hot loops.
+    // Fable compiles arr.[i] to a call of item(i, arr) and
+    // arr.[i] <- v to setItem(arr, i, v) from fable-library, which check the bounds.
+    // since all arrays use it, it stays generic and V8 can optimize.
+    // in array heavy algorithms, this can cause a 80% extra performance penalty
 
     let inline zeroCreateUndef (len:int) : Node [] = //
         #if RELEASE && (FABLE_COMPILER_JAVASCRIPT || FABLE_COMPILER_TYPESCRIPT)
-            Fable.Core.JsInterop.emitJsExpr (len) "new Array($0)"
+            Fable.Core.JsInterop.emitJsExpr (len) "new Array($0)" // fable would call fill on zero created arrays
         #else
             Array.zeroCreate<Node> len
         #endif

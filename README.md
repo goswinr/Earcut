@@ -2,7 +2,6 @@
 
 # Earcut
 
-
 [![Earcut on nuget.org](https://img.shields.io/nuget/v/Earcut)](https://www.nuget.org/packages/Earcut/)
 [![Build Status](https://github.com/goswinr/Earcut/actions/workflows/build.yml/badge.svg)](https://github.com/goswinr/Earcut/actions/workflows/build.yml)
 [![Docs Build Status](https://github.com/goswinr/Earcut/actions/workflows/docs.yml/badge.svg)](https://github.com/goswinr/Earcut/actions/workflows/docs.yml)
@@ -14,8 +13,6 @@ The fastest and smallest polygon triangulation library. <br>
 A port of Mapbox's Earcut algorithm to F#.
 
 https://github.com/mapbox/earcut
-
-
 
 ## Status
 
@@ -31,23 +28,16 @@ The only exception is degenerate input on .NET: if a single-point hole (Steiner 
 of at least two other holes, the order in which these holes get merged is not defined in the original either
 (it depends on the sort algorithm of the JS engine), so the triangles can differ.
 
-All relevant code is in  [Earcut.fs](https://github.com/goswinr/Earcut/blob/main/Earcut.fs). <br>
+All relevant code is in [Earcut.fs](https://github.com/goswinr/Earcut/blob/main/Earcut.fs). <br>
 It contains the ported code without any major changes to the original logic. <br>
 It has no dependencies.
 
 ## Performance
 
-The F# port has about the same performance as the original JS version when compiled back to JS with Fable. <br>
-This holds for Release builds, the default of `dotnet fable`. In Debug builds (the default of `dotnet fable watch`)
-array access is bounds-checked, which makes `earcut` about 1.5 times and `refine` about 4 times slower. <br>
-On .NET it is somewhat faster than the original running on Node.js.
+When compiled back to JS with Fable, the F# port has about the same performance as the original JS version. <br>
+On .NET 11 the F# port is about 1.1 times faster than the original JS version for `earcut` and about 1.6 times faster for `refine`.
 
-Earcut is heavily optimized for its primary workload - triangulating polygons from
-[Mapbox Vector Tiles](https://github.com/mapbox/vector-tile-spec).
-You can run the MVT benchmark (119,680 real-world polygons, 1.9M vertices) yourself with
-`node Test/bench/bench-tiles.js` (after `dotnet fable`), and the refinement benchmark with
-`node Test/bench/bench-refine.js`.
-
+See the [benchmark README](https://github.com/goswinr/Earcut/blob/main/Test/bench/README.md) for results and how to run the benchmarks.
 
 ## The algorithm
 

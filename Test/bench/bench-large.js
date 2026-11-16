@@ -1,7 +1,8 @@
 // Large-ring benchmark for mapbox/earcut#212. Build first with dotnet fable.
 // Run each before/after version in a fresh process: node Test/bench/bench-large.js
 import assert from 'node:assert/strict';
-import {earcut, deviation} from '../../Earcut.fs.js';
+// import earcut, {deviation} from '../../mapbox-earcut/src/earcut.js'; // original JS version
+import {earcut, deviation} from '../../Earcut.fs.js'; // F# to JS version
 
 function radial(n, radius) {
     const vertices = [];

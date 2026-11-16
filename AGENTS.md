@@ -59,12 +59,17 @@ Benchmarks live in [Test/bench/](Test/bench/) and are run by hand, each version 
 node Test/bench/bench-tiles.js     # earcut over the MVT fixture (after dotnet fable)
 node Test/bench/bench-refine.js    # refine over the MVT fixture
 node Test/bench/bench-large.js     # large single rings
-dotnet build -c Release && dotnet fsi Test/bench/bench-large.fsx   # large rings on .NET
+dotnet build -c Release            # the .fsx ports below load bin/Release/netstandard2.0/Earcut.dll
+dotnet fsi Test/bench/bench-tiles.fsx
+dotnet fsi Test/bench/bench-refine.fsx
+dotnet fsi Test/bench/bench-large.fsx
 ```
 
 The JS test and bench files carry a commented-out `// original JS version` import. To A/B against
 upstream, clone it at the pinned commit into the gitignored `mapbox-earcut/` folder and swap the
 import (the bench files already use the `../../mapbox-earcut/src/earcut.js` path).
+[Test/bench/README.md](Test/bench/README.md) has the latest results against upstream and the
+previous release, and how to rerun that comparison. Update it when a change affects performance.
 
 In Claude Code on the web the container has Node but no .NET SDK, so
 [.claude/hooks/session-start.sh](.claude/hooks/session-start.sh) installs SDK 10 into
@@ -145,7 +150,7 @@ Fable, and passes it down as `ws`. This is what makes `earcut` and `refine` thre
 ### Array access: `Arr` and `ResizeArr`
 
 Fable 5 compiles `arr.[i]` and `arr.[i] <- v` to bounds-checked `item()`/`setItem()` library
-calls, which made `earcut` about 1.5x and `refine` about 4x slower than upstream JS. Fable has no
+calls, which made `earcut` about 1.3x and `refine` about 2x slower than upstream JS. Fable has no
 switch for this, so indexing goes through the internal `Arr` (arrays), `ILst` (`IList`) and
 `ResizeArr` (`ResizeArray`) modules at the top of `Earcut.fs`:
 
