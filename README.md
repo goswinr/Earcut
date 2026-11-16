@@ -9,28 +9,33 @@
 [![license](https://img.shields.io/github/license/goswinr/Earcut)](LICENSE.md)
 ![code size](https://img.shields.io/github/languages/code-size/goswinr/Earcut.svg)
 
-The fastest and smallest polygon triangulation library. <br>
-A port of Mapbox's Earcut algorithm to F#.
+An F# port of [Mapbox Earcut](https://github.com/mapbox/earcut), the fast and small polygon triangulation library,
+for .NET and, via Fable, for JavaScript.
 
-https://github.com/mapbox/earcut
+## About Earcut
+
+Earcut triangulates polygons with holes. It uses a modified ear slicing algorithm,
+sped up with a [z-order curve](http://en.wikipedia.org/wiki/Z-order_curve) hash. <br>
+It trades triangulation quality for speed: it handles most practical data without crashing,
+but does not _guarantee_ a correct result on invalid input, such as self-intersecting rings or holes outside the outer ring.
+Its output is not _conforming_ either: a vertex can land in the middle of another triangle's edge. <br>
+See the [README of the original](https://github.com/mapbox/earcut#readme) for the algorithm, its robustness and a demo.
 
 ## Status
 
-Stable for .NET Standard 2.0 and JS via Fable.
-
 A port of Mapbox Earcut v3.2.4, including all later upstream commits up to
-[934e54d](https://github.com/mapbox/earcut/commit/934e54d8bed85387330b7acaa5d2f5ba30a460a3).
+[934e54d](https://github.com/mapbox/earcut/commit/934e54d8bed85387330b7acaa5d2f5ba30a460a3) from Oct 2026.
 
-[All tests](https://github.com/mapbox/earcut/blob/main/test/test.js) of the original JS version pass,
-including the MVT regression suite over 119,680 real-world polygons.
+No dependencies, runs on .NET Standard 2.0 and JS via Fable.
+
+Like in JS all code is in the single file [Earcut.fs](https://github.com/goswinr/Earcut/blob/main/Earcut.fs). <br>
+
+<details><summary>All tests of the original JS version pass!</summary>
+Including the MVT regression suite over 119,680 real-world polygons.
 The port produces element-for-element identical output to the reference JS implementation. <br>
 The only exception is degenerate input on .NET: if a single-point hole (Steiner point) sits exactly on the leftmost point
 of at least two other holes, the order in which these holes get merged is not defined in the original either
-(it depends on the sort algorithm of the JS engine), so the triangles can differ.
-
-All relevant code is in [Earcut.fs](https://github.com/goswinr/Earcut/blob/main/Earcut.fs). <br>
-It contains the ported code without any major changes to the original logic. <br>
-It has no dependencies.
+(it depends on the sort algorithm of the JS engine), so the triangles can differ.</details>
 
 ## Performance
 
@@ -38,44 +43,6 @@ When compiled back to JS with Fable, the F# port has about the same performance 
 On .NET 11 the F# port is about 1.1 times faster than the original JS version for `earcut` and about 1.6 times faster for `refine`.
 
 See the [benchmark README](https://github.com/goswinr/Earcut/blob/main/Test/bench/README.md) for results and how to run the benchmarks.
-
-## The algorithm
-
-The library implements a modified ear slicing algorithm, <br>
-optimized by [z-order curve](http://en.wikipedia.org/wiki/Z-order_curve) and spatial hashing <br>
-and extended to handle holes, twisted polygons, degeneracies and self-intersections <br>
-in a way that doesn't _guarantee_ correctness of triangulation, <br>
-but attempts to always produce acceptable results for practical data. <br>
-
-It's based on ideas from
-[FIST: Fast Industrial-Strength Triangulation of Polygons](http://www.cosy.sbg.ac.at/~held/projects/triang/triang.html) by Martin Held <br>
-and [Triangulation by Ear Clipping](http://www.geometrictools.com/Documentation/TriangulationByEarClipping.pdf) by David Eberly. <br>
-
-## Why another triangulation library?
-
-The aim of the original mapbox Earcut project is to create a triangulation library <br>
-that is **fast enough for real-time triangulation in the browser**, <br>
-sacrificing triangulation quality for raw speed and simplicity, <br>
-while being robust enough to handle most practical datasets without crashing or producing garbage, <br>
-with an option to `refine` the result to [Delaunay](https://en.wikipedia.org/wiki/Delaunay_triangulation) quality at a small cost.
-
-If you want to get correct triangulation even on very bad data with lots of self-intersections <br>
-and earcut is not precise enough, take a look at [libtess.js](https://github.com/brendankenny/libtess.js).
-
-## Robustness
-
-Earcut does **not** guarantee a correct triangulation on arbitrary input - it trades quality
-for speed, aiming to always produce an acceptable result on practical data without crashing or
-emitting garbage. The input is assumed to be a valid polygon: rings that don't self-cross or
-overlap, holes that stay inside the outer ring, and no duplicate or zero-length edges. On input
-that breaks these assumptions, the result can be noticeably wrong - overlapping triangles, gaps,
-or triangles outside the polygon. If correctness matters, clean your input first (see also the
-`validate` function below); for a guaranteed-correct triangulation even on bad data, see
-[libtess.js](https://github.com/brendankenny/libtess.js) (slower and larger).
-
-The output is also not _conforming_ - a vertex may land in the middle of another triangle's edge
-(a T-junction). This is harmless for rendering but can break navmesh or FEM use; if you need a
-conforming mesh, remove T-junctions in a post-process.
 
 ## Usage
 
@@ -295,24 +262,7 @@ There are two test suites with the same tests.
 For Fable/JS, build to JS with `dotnet fable` and run `node Test/test.js` <br>
 For .NET, run `dotnet fsi Test/test.fsx`
 
-## Run Benchmarks
-
-For .NET, build the Release library and benchmark large polygons:
-
-```sh
-dotnet build -c Release
-dotnet fsi Test/bench/bench-large.fsx
-```
-
-For Fable/JS, build with `dotnet fable` and run:
-
-```sh
-node Test/bench/bench-large.js
-node Test/bench/bench-tiles.js
-node Test/bench/bench-refine.js
-```
-
-The large-polygon benchmarks cover regular 10k/100k polygons, a concave star, a random-radius ring, and a rectangle with collinear boundary vertices. They report the median and range of five measured calls after one warmup. Run before/after versions in separate processes.
+For benchmarks, see the [benchmark README](https://github.com/goswinr/Earcut/blob/main/Test/bench/README.md).
 
 ## License
 
